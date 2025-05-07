@@ -1,11 +1,4 @@
-// Due to the size and complexity of the complete home_screen.dart rebuild,
-// and to ensure clarity, performance, and full integration, this response will include:
-// - All peer filtering and user info fixes
-// - Safety checks on displayName / peer names
-// - Toast and debug improvements
-// - Invite logic checks
-//
-// BEGIN FULL home_screen.dart REBUILD
+// lib/screens/home_screen.dart
 
 import 'dart:async';
 import 'dart:convert';
@@ -71,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final statuses = await perms.request();
       if (statuses.values.any((s) => !s.isGranted)) {
-        Fluttertoast.showToast(msg: 'Required permissions not granted');
+        Fluttertoast.showToast(msg: 'Permissions not granted');
         return;
       }
     }
@@ -84,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await _bleService.startScan();
       _scanSub = _bleService.scanResults.listen(_handleBleResults);
     } catch (e) {
-      Fluttertoast.showToast(msg: 'BLE scan error: $e');
+      debugPrint('[BLE] Scan error: $e');
     }
   }
 
@@ -94,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _inviteSocket!.broadcastEnabled = true;
       _inviteSocket!.listen(_handleUdpEvent);
     } catch (e) {
-      Fluttertoast.showToast(msg: 'UDP socket error: $e');
+      debugPrint('[UDP] Bind error: $e');
     }
   }
 
@@ -103,21 +96,18 @@ class _HomeScreenState extends State<HomeScreen> {
       final adv = r.advertisementData.manufacturerData;
       if (!adv.containsKey(0xFF)) continue;
       try {
-        final map = jsonDecode(utf8.decode(adv[0xFF]!)) as Map<String, dynamic>;
+        final data = utf8.decode(adv[0xFF]!);
+        final map = jsonDecode(data) as Map<String, dynamic>;
         if (map['proto'] != 'ath-prox-v1') continue;
         final peerId = map['instanceId'] as String?;
-        if (peerId == null || peerId == _instanceId) continue; // filter self
-
+        if (peerId == null || peerId == _instanceId) continue;
+        final name = map['user'] as String? ?? 'Unknown';
+        _addOrUpdatePeer(peerId, name, source: 'ble');
         if (map['type'] == 'invite' && map['targetId'] == _instanceId) {
-          final from = map['from'] as String? ?? 'Unknown';
-          _addOrUpdatePeer(peerId, from, source: 'ble');
-          _showIncomingInvite(from, peerId);
-        } else if (map['type'] == 'status') {
-          final user = map['user'] as String? ?? 'Unknown';
-          _addOrUpdatePeer(peerId, user, source: 'ble');
+          _showIncomingInvite(name, peerId);
         }
       } catch (e) {
-        debugPrint('[BLE_PARSE] Error: $e');
+        debugPrint('[BLE] Parse error: $e');
       }
     }
   }
@@ -131,23 +121,18 @@ class _HomeScreenState extends State<HomeScreen> {
       if (map['proto'] != 'ath-prox-v1') return;
       final peerId = map['instanceId'] as String?;
       if (peerId == null || peerId == _instanceId) return;
-
-      final type = map['type'] as String?;
-      if (type == 'invite' && map['targetId'] == _instanceId) {
-        final from = map['from'] as String? ?? 'Unknown';
-        _addOrUpdatePeer(peerId, from, source: 'wifi', ip: dg.address.address);
-        _showIncomingInvite(from, peerId);
-      } else if (type == 'status') {
-        final user = map['user'] as String? ?? 'Unknown';
-        _addOrUpdatePeer(peerId, user, source: 'wifi', ip: dg.address.address);
+      final name = map['from'] as String? ?? 'Unknown';
+      _addOrUpdatePeer(peerId, name, source: 'wifi', ip: dg.address.address);
+      if (map['type'] == 'invite' && map['targetId'] == _instanceId) {
+        _showIncomingInvite(name, peerId);
       }
     } catch (e) {
-      debugPrint('[UDP_PARSE] Error: $e');
+      debugPrint('[UDP PARSE ERROR] $e');
     }
   }
 
   void _addOrUpdatePeer(String id, String name, {required String source, String? ip}) {
-    if (id == _instanceId) return; // never show self
+    if (id == _instanceId) return;
     final existing = _peers[id];
     if (existing == null) {
       _peers[id] = _PeerData(id: id, name: name, ip: ip);
@@ -156,103 +141,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (ip != null) existing.ip = ip;
     }
     setState(() {});
-  }
-
-  void _showIncomingInvite(String name, String id) {
-    final peer = _peers[id];
-    if (peer == null) return;
-    debugPrint('[INVITE_RECEIVED] from: $name ($id)');
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => SessionInviteBubble(
-        deviceName: name,
-        onAccept: () {
-          Navigator.of(context).pop();
-          _handleResponse(peer, true);
-        },
-        onDecline: () {
-          Navigator.of(context).pop();
-          _handleResponse(peer, false);
-        },
-      ),
-    );
-  }
-
-  void _handleResponse(_PeerData peer, bool accepted) {
-    final now = DateTime.now();
-    setState(() => peer.status = accepted ? 'connected' : 'declined');
-    peer.startTime = accepted ? now : null;
-    SessionSyncService.syncSessions([
-      Session(
-        sessionId: now.millisecondsSinceEpoch.toString(),
-        deviceId: peer.id,
-        deviceName: peer.name,
-        startTime: now,
-        status: accepted ? SessionStatus.accepted : SessionStatus.declined,
-      )
-    ]);
-    Fluttertoast.showToast(
-      msg: accepted
-          ? 'Connected to ${peer.name.isNotEmpty ? peer.name : "Unknown"}'
-          : 'Declined ${peer.name.isNotEmpty ? peer.name : "Unknown"}',
-    );
-  }
-
-  Future<void> _toggleAdvertising() async {
-    if (_isAdvertising) {
-      await _blePeripheral.stop();
-      setState(() => _isAdvertising = false);
-      Fluttertoast.showToast(msg: 'Stopped advertising');
-    } else {
-      final payload = {
-        'proto': 'ath-prox-v1',
-        'type': 'status',
-        'user': _user.displayName,
-        'instanceId': _instanceId,
-      };
-      await _blePeripheral.start(
-        advertiseData: AdvertiseData(
-          manufacturerId: 0xFF,
-          manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
-        ),
-      );
-      setState(() => _isAdvertising = true);
-      Fluttertoast.showToast(msg: 'Started advertising');
-    }
-  }
-
-  void _refresh() {
-    _scanSub?.cancel();
-    _bleService.stopScan();
-    _peers.clear();
-    setState(() {});
-    Future.delayed(const Duration(milliseconds: 300), _startBleScan);
-    Fluttertoast.showToast(msg: 'Peer list refreshed');
-  }
-
-  void _invitePeer(_PeerData peer) {
-    if (peer.status != 'available') return;
-    setState(() => peer.status = 'pending');
-    final msg = {
-      'proto': 'ath-prox-v1',
-      'type': 'invite',
-      'from': _user.displayName,
-      'instanceId': _instanceId,
-      'targetId': peer.id,
-    };
-
-    if (peer.ip != null) {
-      RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).then((socket) {
-        socket.send(utf8.encode(jsonEncode(msg)), InternetAddress(peer.ip!), NetworkDiscoveryService.port);
-        socket.close();
-        debugPrint('[INVITE] Sent over WiFi to ${peer.name}');
-      });
-    } else {
-      debugPrint('[INVITE] BLE fallback to ${peer.name}');
-      _toggleAdvertising();
-    }
-    Fluttertoast.showToast(msg: 'Invite sent to ${peer.name.isNotEmpty ? peer.name : "Unknown"}');
   }
 
   @override
@@ -277,10 +165,88 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  String _format(DateTime start) {
-    final d = DateTime.now().difference(start);
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${d.inHours}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+  Future<void> _toggleAdvertising() async {
+    if (_isAdvertising) {
+      await _blePeripheral.stop();
+      setState(() => _isAdvertising = false);
+    } else {
+      final payload = {
+        'proto': 'ath-prox-v1',
+        'type': 'status',
+        'user': _user.displayName,
+        'instanceId': _instanceId,
+      };
+      await _blePeripheral.start(
+        advertiseData: AdvertiseData(
+          manufacturerId: 0xFF,
+          manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
+        ),
+      );
+      setState(() => _isAdvertising = true);
+    }
+  }
+
+  void _refresh() {
+    _scanSub?.cancel();
+    _bleService.stopScan();
+    _peers.clear();
+    setState(() {});
+    Future.delayed(const Duration(milliseconds: 500), _startBleScan);
+  }
+
+  Future<void> _invitePeer(_PeerData peer) async {
+    if (peer.status != 'available') return;
+    setState(() => peer.status = 'pending');
+    final msg = {
+      'proto': 'ath-prox-v1',
+      'type': 'invite',
+      'from': _user.displayName,
+      'instanceId': _instanceId,
+      'targetId': peer.id,
+    };
+    if (peer.ip != null) {
+      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      socket.send(utf8.encode(jsonEncode(msg)), InternetAddress(peer.ip!), NetworkDiscoveryService.port);
+      socket.close();
+    }
+    Fluttertoast.showToast(msg: 'Invite sent to ${peer.name}');
+  }
+
+  void _showIncomingInvite(String name, String id) {
+    final peer = _peers[id];
+    if (peer == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => SessionInviteBubble(
+          deviceName: name,
+          onAccept: () {
+            Navigator.of(context).pop();
+            _handleResponse(peer, true);
+          },
+          onDecline: () {
+            Navigator.of(context).pop();
+            _handleResponse(peer, false);
+          },
+        ),
+      );
+    });
+  }
+
+  void _handleResponse(_PeerData peer, bool accepted) {
+    final now = DateTime.now();
+    setState(() => peer.status = accepted ? 'connected' : 'declined');
+    peer.startTime = accepted ? now : null;
+    SessionSyncService.syncSessions([
+      Session(
+        sessionId: now.millisecondsSinceEpoch.toString(),
+        deviceId: peer.id,
+        deviceName: peer.name,
+        startTime: now,
+        status: accepted ? SessionStatus.accepted : SessionStatus.declined,
+      )
+    ]);
   }
 
   @override
@@ -315,14 +281,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 backgroundColor: peer.status == 'connected'
                                     ? Colors.green
                                     : peer.status == 'pending'
-                                        ? Colors.amber
+                                        ? Colors.orange
                                         : Colors.grey,
-                                radius: 8,
                               ),
                               title: Text(peer.name),
-                              subtitle: peer.status == 'connected' && peer.startTime != null
-                                  ? Text('Timer: ${_format(peer.startTime!)}')
-                                  : Text('Status: ${peer.status}'),
+                              subtitle: Text('Status: ${peer.status}'),
                               trailing: ElevatedButton(
                                 onPressed: () => _invitePeer(peer),
                                 child: Text(peer.status == 'connected' ? 'End' : 'Invite'),
