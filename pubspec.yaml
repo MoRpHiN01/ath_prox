@@ -32,7 +32,7 @@ dependencies:
   flutter_blue_plus: ^1.35.5
   flutter_ble_peripheral: ^1.2.6
   flutter_background_service: ^5.1.0
-  flutter_background_service_android: ^6.3.0
+  flutter_background_service_android: 6.3.0
 
   # Permissions & Device Info
   permission_handler: ^12.0.0+1

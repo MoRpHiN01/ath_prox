@@ -1,5 +1,11 @@
 // lib/main.dart
 
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 //import 'firebase_options.dart';
@@ -13,12 +19,44 @@ import 'screens/support_screen.dart';
 import 'screens/report_screen.dart';
 import 'utils/themes.dart';
 //import 'services/background_sync_service.dart';
-import 'utils/firebase_utils.dart'; // 👈 NEW
+import 'utils/firebase_utils.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
   await initializeFirebaseIfNeeded();
-  runApp(MyApp());
+  
+  final service = FlutterBackgroundService();
+  await service.configure(
+    androidConfiguration: AndroidConfiguration(
+      onStart: onStart,                        // your entry-point
+      autoStart: true,                         // launches on boot
+      isForegroundMode: true,                  // show a notification
+      notificationChannelId: 'bg_service_ch',  // must match your channel
+      initialNotificationTitle: 'ATH Proximity',
+      initialNotificationContent: 'Service running',
+      foregroundServiceNotificationId: 888,
+    ),
+    iosConfiguration: IosConfiguration(
+      autoStart: true,
+      onForeground: onStart,
+      onBackground: onIosBackground,
+    ),
+  );
+  service.startService();
+
+  runApp(const MyApp());
+}
+
+@pragma('vm:entry-point')
+void onStart(ServiceInstance service) {
+  DartPluginRegistrant.ensureInitialized();
+  // …your background logic here…
+}
+
+Future<bool> onIosBackground(ServiceInstance service) async {
+  // iOS background fetch logic, if needed
+  return true;
 }
 
 class MyApp extends StatelessWidget {
