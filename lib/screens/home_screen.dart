@@ -2,17 +2,15 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:provider/provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:uuid/uuid.dart';
 
 import '../widgets/app_drawer.dart';
 import '../widgets/session_invite_bubble.dart';
@@ -28,77 +26,56 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final BleService _bleService = BleService();
-  final FlutterBlePeripheral _blePeripheral = FlutterBlePeripheral();
-  final WifiService _wifiService = WifiService();
-  final NfcService _nfcService = NfcService();
-  final NetworkDiscoveryService _netDisc = NetworkDiscoveryService();
+  final _bleService = BleService();
+  final _blePeripheral = FlutterBlePeripheral();
+  final _wifiService = WifiService();
+  final _nfcService = NfcService();
+  final _netDisc = NetworkDiscoveryService();
+  final _instanceId = const Uuid().v4();
 
-  final Map<String, String> deviceStatuses = {};
-  final Map<String, DateTime> sessionStartTimes = {};
+  late UserModel _user;
   bool _isAdvertising = false;
-  late UserModel user;
-  bool _networkStarted = false;
+  final Map<String, String> _deviceStatus = {};
+  final Map<String, DateTime> _startTimes = {};
+
+  late StreamSubscription<List<ScanResult>> _scanSub;
+  late StreamSubscription _wifiInviteSub;
 
   @override
   void initState() {
     super.initState();
-    _ensurePermissions();
+
+    // Always start scanning and NFC
+    _bleService.startScan();
     _nfcService.startSession(_handleNfcInvite);
 
-    // Listen for Wi-Fi invites
-    final service = FlutterBackgroundService();
-    service.on('wifiInvite').listen((event) {
-      final data = event as Map<String, dynamic>?;
-      final from = data?['from'] as String?;
-      final sessionId = data?['sessionId'] as String?;
-      if (from != null && sessionId != null) {
-        _showWifiInvite(from, sessionId);
+    // Subscribe to BLE scan results (no auto invites)
+    _scanSub = _bleService.scanResults.listen((results) {
+      setState(() {
+        // just refresh UI
+      });
+    });
+
+    // Start network discovery
+    _netDisc.onPeerFound = (ip, name) => _showInvite(name, ip);
+    // Delay obtaining user until build/didChangeDependencies
+
+    // Listen for background Wi-Fi invites
+    _wifiInviteSub = FlutterBackgroundService().on('wifiInvite').listen((event) {
+      if (event is Map<String, dynamic>) {
+        _showInvite(event['from'], event['sessionId'], senderId: event['instanceId']);
       }
     });
-  }
-
-  /// Request required permissions before starting BLE scan
-  Future<void> _ensurePermissions() async {
-    if (Platform.isAndroid) {
-      final perms = [
-        Permission.locationWhenInUse,
-        Permission.bluetoothScan,
-        Permission.bluetoothAdvertise,
-        Permission.bluetoothConnect,
-      ];
-      for (final perm in perms) {
-        if (!await perm.isGranted) {
-          final status = await perm.request();
-          if (!status.isGranted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Permissions are required for BLE scanning.'),
-              ),
-            );
-            return;
-          }
-        }
-      }
-    }
-    _bleService.startScan();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_networkStarted) {
-      user = Provider.of<UserModel>(context, listen: false);
-      _netDisc.onPeerFound = (ip, name) {
-        _showWifiInvite(name, ip);
-      };
-      _netDisc.start(user.displayName);
-      _networkStarted = true;
-    }
+    _user = Provider.of<UserModel>(context);
   }
 
   @override
@@ -107,264 +84,192 @@ class _HomeScreenState extends State<HomeScreen> {
     _blePeripheral.stop();
     _nfcService.stopSession();
     _netDisc.stop();
+    _scanSub.cancel();
+    _wifiInviteSub.cancel();
     super.dispose();
+  }
+
+  void _refresh() {
+    setState(() {
+      _deviceStatus.clear();
+      _startTimes.clear();
+    });
+    _bleService.startScan();
+    Fluttertoast.showToast(msg: 'Refreshing device list...');
   }
 
   Future<void> _toggleAdvertising() async {
     if (_isAdvertising) {
       await _blePeripheral.stop();
       setState(() => _isAdvertising = false);
-      Fluttertoast.showToast(msg: 'Stopped BLE Advertising');
+      Fluttertoast.showToast(msg: 'Advertising stopped');
     } else {
-      final payload = jsonEncode({
-        'user': user.displayName,
+      final payload = {
+        'user': _user.displayName,
+        'instanceId': _instanceId,
         'status': 'available',
-        'ssid': await _wifiService.getSSID(),
-        'ip': await _wifiService.getCurrentIP(),
-      });
+      };
       await _blePeripheral.start(
         advertiseData: AdvertiseData(
           manufacturerId: 0xFF,
-          manufacturerData: Uint8List.fromList(utf8.encode(payload)),
+          manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
         ),
       );
       setState(() => _isAdvertising = true);
-      Fluttertoast.showToast(msg: 'Started BLE Advertising');
+      Fluttertoast.showToast(msg: 'Advertising started');
     }
   }
 
-  void _handleInviteResponse(String deviceId, String displayName, bool accepted) {
+  void _showInvite(String name, String id, {String? senderId}) {
+    if (senderId == _instanceId) return;
+    if (_deviceStatus.containsKey(id)) return;
+    setState(() => _deviceStatus[id] = 'pending');
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => SessionInviteBubble(
+        deviceName: name,
+        onAccept: () { Navigator.of(context).pop(); _handleResponse(id, name, true); },
+        onDecline: () { Navigator.of(context).pop(); _handleResponse(id, name, false); },
+      ),
+    );
+  }
+
+  void _handleResponse(String id, String name, bool accepted) {
     final now = DateTime.now();
-    final session = Session(
-      sessionId: now.millisecondsSinceEpoch.toString(),
-      deviceId: deviceId,
-      deviceName: displayName,
-      startTime: now,
-      status: accepted ? SessionStatus.accepted : SessionStatus.declined,
-    );
     setState(() {
-      deviceStatuses[deviceId] = accepted ? 'connected' : 'declined';
-      if (accepted) sessionStartTimes[deviceId] = now;
+      _deviceStatus[id] = accepted ? 'connected' : 'declined';
+      if (accepted) _startTimes[id] = now;
+      else _startTimes.remove(id);
     });
-    SessionSyncService.syncSessions([session]);
-    Fluttertoast.showToast(
-      msg: accepted
-          ? 'Session started with $displayName'
-          : '$displayName declined',
-    );
-  }
-
-  void _showInviteBubble(ScanResult result, String displayName) {
-    final deviceId = result.device.remoteId.id;
-    if (deviceStatuses[deviceId] == 'pending' ||
-        deviceStatuses[deviceId] == 'connected') return;
-    setState(() => deviceStatuses[deviceId] = 'pending');
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => SessionInviteBubble(
-        deviceName: displayName,
-        onAccept: () => _handleInviteResponse(deviceId, displayName, true),
-        onDecline: () => _handleInviteResponse(deviceId, displayName, false),
-      ),
-    );
-  }
-
-  void _showWifiInvite(String displayName, String sessionId) {
-    if (deviceStatuses.containsKey(sessionId)) return;
-    setState(() => deviceStatuses[sessionId] = 'pending');
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => SessionInviteBubble(
-        deviceName: displayName,
-        onAccept: () {
-          Navigator.of(context).pop();
-          _handleInviteResponse(sessionId, displayName, true);
-        },
-        onDecline: () {
-          Navigator.of(context).pop();
-          _handleInviteResponse(sessionId, displayName, false);
-        },
-      ),
-    );
+    SessionSyncService.syncSessions([
+      Session(
+        sessionId: now.millisecondsSinceEpoch.toString(),
+        deviceId: id,
+        deviceName: name,
+        startTime: now,
+        status: accepted ? SessionStatus.accepted : SessionStatus.declined,
+      )
+    ]);
+    Fluttertoast.showToast(msg: accepted ? 'Connected to $name' : 'Declined $name');
   }
 
   void _handleNfcInvite(String peerId, String peerName) {
-    if (deviceStatuses.containsKey(peerId)) return;
-    final simulated = ScanResult(
-      device: BluetoothDevice(remoteId: DeviceIdentifier(peerId)),
-      advertisementData: AdvertisementData(
-        advName: peerName,
-        txPowerLevel: -10,
-        appearance: 0,
-        connectable: true,
-        manufacturerData: {},
-        serviceData: {},
-        serviceUuids: [],
-      ),
-      rssi: -50,
-      timeStamp: DateTime.now(),
-    );
-    _showInviteBubble(simulated, peerName);
+    _showInvite(peerName, peerId);
   }
 
-  Color _getStatusColor(String status) {
+  Color _statusColor(String status) {
     switch (status) {
-      case 'connected':
-        return Colors.blue;
-      case 'pending':
-        return Colors.amber;
-      case 'declined':
-        return Colors.red;
-      case 'lost':
-        return Colors.grey;
-      default:
-        return Colors.green;
+      case 'connected': return Colors.blue;
+      case 'pending': return Colors.amber;
+      case 'declined': return Colors.red;
+      default: return Colors.green;
     }
   }
 
-  String _formatDuration(Duration d) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final minutes = twoDigits(d.inMinutes.remainder(60));
-    final seconds = twoDigits(d.inSeconds.remainder(60));
-    return '${d.inHours}:$minutes:$seconds';
+  String _fmt(Duration d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${d.inHours}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
   }
 
   @override
   Widget build(BuildContext context) {
-    user = Provider.of<UserModel>(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text('Welcome, ${user.displayName}'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12.0),
-            child: CircleAvatar(
-              backgroundImage: user.profileImagePath.isNotEmpty
-                  ? Image.asset(user.profileImagePath).image
-                  : const AssetImage('assets/images/logo.png'),
-            ),
-          ),
-        ],
+        title: Text(_user.displayName.isEmpty ? 'Set Display Name' : 'Welcome, ${_user.displayName}'),
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh)],
       ),
       drawer: AppDrawer(onNavigate: (route) {
         Navigator.of(context).pop();
-        if (ModalRoute.of(context)!.settings.name != route) {
-          Navigator.of(context).pushReplacementNamed(route);
-        }
+        if (ModalRoute.of(context)!.settings.name != route) Navigator.of(context).pushReplacementNamed(route);
       }),
-      body: Column(
-        children: [
-          const SizedBox(height: 8),
-          ElevatedButton(
-            onPressed: _toggleAdvertising,
-            child: Text(
-              _isAdvertising ? 'Stop Advertising' : 'Start Advertising',
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<List<ScanResult>>(
-              stream: _bleService.scanResults,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final results = snapshot.data!;
-                return ListView.builder(
-                  itemCount: results.length,
-                  itemBuilder: (context, index) {
-                    final result = results[index];
-                    final deviceId = result.device.remoteId.id;
-                    String displayName;
-                    String status;
-                    try {
-                      final data = result.advertisementData.manufacturerData.values.first;
-                      final jsonStr = utf8.decode(data);
-                      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-                      displayName = map['user'] as String? ?? result.device.name;
-                      status = map['status'] as String? ?? 'unknown';
-                    } catch (_) {
-                      displayName = result.device.name.isNotEmpty
-                          ? result.device.name
-                          : deviceId;
-                      status = 'unknown';
-                    }
-                    final startTime = sessionStartTimes[deviceId];
-                    deviceStatuses[deviceId] = status;
+      body: _user.displayName.isEmpty
+          ? Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pushNamed('/profile'),
+                child: const Text('Go to Profile'),
+              ),
+            )
+          : Column(
+              children: [
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: _toggleAdvertising,
+                  child: Text(_isAdvertising ? 'Stop' : 'Start'),
+                ),
+                Expanded(
+                  child: StreamBuilder<List<ScanResult>>(
+                    stream: _bleService.scanResults,
+                    builder: (context, snapshot) {
+                      final all = snapshot.data ?? [];
+                      final peers = all.where((r) {
+                        final adv = r.advertisementData.manufacturerData;
+                        if (!adv.containsKey(0xFF)) return false;
+                        try {
+                          final m = jsonDecode(utf8.decode(adv[0xFF]!)) as Map<String, dynamic>;
+                          return m['instanceId'] != _instanceId;
+                        } catch (_) {
+                          return false;
+                        }
+                      }).toList();
 
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: _getStatusColor(status),
-                        radius: 8,
-                      ),
-                      title: Text(displayName),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('$deviceId\nStatus: $status'),
-                          if (status == 'connected' && startTime != null)
-                            StreamBuilder(
-                              stream: Stream.periodic(const Duration(seconds: 1)),
-                              builder: (_, __) {
-                                final elapsed = DateTime.now().difference(startTime);
-                                return Text('Timer: ${_formatDuration(elapsed)}');
-                              },
-                            ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ElevatedButton(
-                            onPressed: () {
-                              if (status == 'connected') {
-                                setState(() {
-                                  deviceStatuses[deviceId] = 'available';
-                                  sessionStartTimes.remove(deviceId);
-                                });
-                                Fluttertoast.showToast(msg: 'Session ended with $displayName');
-                              } else {
-                                _showInviteBubble(result, displayName);
-                              }
-                            },
-                            child: Text(status == 'connected' ? 'End' : 'BLE Invite'),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: () async {
-                              final ip = await _wifiService.getCurrentIP();
-                              if (ip == null) {
-                                Fluttertoast.showToast(msg: 'Not connected to Wi-Fi');
-                                return;
-                              }
-                              final uri = Uri.parse('http://$ip:8080/invite');
-                              try {
-                                await http.post(
-                                  uri,
-                                  headers: {'Content-Type': 'application/json'},
-                                  body: jsonEncode({
-                                    'from': user.displayName,
-                                    'sessionId': DateTime.now().millisecondsSinceEpoch.toString(),
-                                  }),
-                                );
-                                Fluttertoast.showToast(msg: 'Wi-Fi invite sent');
-                              } catch (e) {
-                                Fluttertoast.showToast(msg: 'Error sending Wi-Fi invite: $e');
-                              }
-                            },
-                            child: const Text('Wi-Fi Invite'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
+                      if (peers.isEmpty) return const Center(child: Text('No peers found.'));
+                      return ListView.builder(
+                        itemCount: peers.length,
+                        itemBuilder: (context, i) {
+                          final r = peers[i];
+                          final id = r.device.remoteId.id;
+                          String name = id;
+                          String status = _deviceStatus[id] ?? 'unknown';
+                          final start = _startTimes[id];
+                          try {
+                            final m = jsonDecode(utf8.decode(r.advertisementData.manufacturerData[0xFF]!)) as Map<String, dynamic>;
+                            name = m['user'] as String? ?? name;
+                            status = m['status'] as String? ?? status;
+                          } catch (_) {}
+                          return ListTile(
+                            leading: CircleAvatar(backgroundColor: _statusColor(status), radius: 8),
+                            title: Text(name),
+                            subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text('Status: $status'),
+                              if (status == 'connected' && start != null) Text('Timer: ${_fmt(DateTime.now().difference(start))}'),
+                            ]),
+                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                              ElevatedButton(
+                                onPressed: () => status == 'connected' ? _handleResponse(id, name, false) : _showInvite(name, id),
+                                child: Text(status == 'connected' ? 'End' : 'Invite'),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  final ip = await _wifiService.getCurrentIP();
+                                  if (ip.isEmpty) {
+                                    Fluttertoast.showToast(msg: 'Not on Wi-Fi');
+                                    return;
+                                  }
+                                  final uri = Uri.parse('http://$ip:8080/invite');
+                                  try {
+                                    await http.post(
+                                      uri,
+                                      headers: {'Content-Type': 'application/json'},
+                                      body: jsonEncode({'from': _user.displayName, 'instanceId': _instanceId, 'sessionId': DateTime.now().millisecondsSinceEpoch.toString()}),
+                                    );
+                                    Fluttertoast.showToast(msg: 'Wi-Fi invite sent');
+                                  } catch (e) {
+                                    Fluttertoast.showToast(msg: 'Error: $e');
+                                  }
+                                },
+                                child: const Text('Wi-Fi'),
+                              ),
+                            ]),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }
