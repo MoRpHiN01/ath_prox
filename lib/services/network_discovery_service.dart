@@ -1,61 +1,70 @@
-// network_discovery_service.dart
+// lib/services/network_discovery_service.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:uuid/uuid.dart';
 
-typedef PeerCallback = void Function(String ip, String displayName);
-
+/// Simple UDP broadcast discovery service (IPv4)
 class NetworkDiscoveryService {
-  static const int _port = 4567;
-  RawDatagramSocket? _socket;
-  Timer? _broadcastTimer;
-  PeerCallback? onPeerFound;
+  static const int port = 9999;
+  late RawDatagramSocket _socket;
+  late Timer _timer;
+  final String _instanceId = const Uuid().v4();
+  late String _userName;
 
-  /// Call this once at startup to bind the socket and start both
-  /// broadcasting our info and listening for others.
-  Future<void> start(String displayName) async {
-    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _port);
-    _socket!.broadcastEnabled = true;
-    _socket!.listen(_handleDatagram);
+  /// Fired when a peer is discovered: IP address and display name
+  void Function(String ip, String name, String senderId) onPeerFound =
+      (ip, name, senderId) {};
 
-    // every 5 seconds, send out our presence
-    _broadcastTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      final msg = jsonEncode({
-        'ip': _socket!.address.address,
-        'user': displayName,
+  /// Start broadcasting and listening
+  Future<void> start(String userName) async {
+    _userName = userName;
+    _socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      port,
+      reuseAddress: true,
+      reusePort: true,
+    );
+    _socket.broadcastEnabled = true;
+    _socket.listen(_handleSocketEvent);
+
+    // Broadcast every 5 seconds
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final payload = jsonEncode({
+        'user': _userName,
+        'instanceId': _instanceId,
       });
-      final data = utf8.encode(msg);
-      _socket!.send(
-        data,
+      _socket.send(
+        utf8.encode(payload),
         InternetAddress('255.255.255.255'),
-        _port,
+        port,
       );
     });
   }
 
-  void _handleDatagram(RawSocketEvent event) {
+  void _handleSocketEvent(RawSocketEvent event) {
     if (event == RawSocketEvent.read) {
-      final dg = _socket!.receive();
-      if (dg == null) return;
-
+      final datagram = _socket.receive();
+      if (datagram == null) return;
       try {
-        final msg = utf8.decode(dg.data);
+        final msg = utf8.decode(datagram.data);
         final map = jsonDecode(msg) as Map<String, dynamic>;
-        final peerIp = dg.address.address;
-        final peerName = map['user'] as String? ?? 'Unknown';
-        if (onPeerFound != null) {
-          onPeerFound!(peerIp, peerName);
+        final senderId = map['instanceId'] as String?;
+        final name = map['user'] as String?;
+        final ip = datagram.address.address;
+        if (senderId != null && name != null && senderId != _instanceId) {
+          onPeerFound(ip, name, senderId);
         }
       } catch (_) {
-        // ignore bad packets
+        // ignore bad payloads
       }
     }
   }
 
-  /// Clean up
+  /// Stop broadcasting and listening
   void stop() {
-    _broadcastTimer?.cancel();
-    _socket?.close();
-    _socket = null;
+    _timer.cancel();
+    _socket.close();
   }
 }

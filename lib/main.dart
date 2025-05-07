@@ -11,12 +11,12 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:provider/provider.dart';
 
 import 'models/user_model.dart';
-import 'screens/home_screen.dart';
+import 'screens/home_screen.dart' show HomeScreen;
+import 'screens/support_screen.dart' show SupportScreen;
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/about_screen.dart';
 import 'screens/splash_screen.dart';
-import 'screens/support_screen.dart';
 import 'screens/report_screen.dart';
 import 'services/background_sync_service.dart';
 import 'utils/themes.dart';
@@ -94,12 +94,12 @@ class MyApp extends StatelessWidget {
         theme: appTheme,
         initialRoute: '/splash',
         routes: {
-          '/splash': (context) => const SplashScreen(),
-          '/': (context) => const HomeScreen(),
+          '/splash':  (context) => const SplashScreen(),
+		  '/':        (context) => const HomeScreen(),
+		  '/support': (context) => const SupportScreen(),
           '/profile': (context) => const ProfileScreen(),
-          '/settings': (context) => const SettingsScreen(),
-          '/about': (context) => const AboutScreen(),
-          '/support': (context) => const SupportScreen(),
+          '/settings':(context) => const SettingsScreen(),
+          '/about':   (context) => const AboutScreen(),
           '/reports': (context) => const ReportScreen(),
         },
       ),
