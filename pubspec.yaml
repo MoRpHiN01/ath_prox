@@ -10,10 +10,11 @@ dependencies:
     sdk: flutter
 
   intl: ^0.20.2
-  # nfc_manager: ^3.5.0
   wifi_iot: 0.3.19+2
+  http: ^1.4.0
   connectivity_plus: ^6.1.4
   network_info_plus: ^6.1.4
+
 
   # Package provider 
   package_info_plus: 8.3.0

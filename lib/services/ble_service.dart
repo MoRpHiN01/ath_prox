@@ -20,36 +20,30 @@ class BleService {
     }
   }
 
-  /// Extracts the custom display name from manufacturer data, if encoded in JSON.
   String extractDisplayName(ScanResult result) {
-    final data = result.advertisementData.manufacturerData;
-    if (data.isNotEmpty) {
-      final payload = data.entries.first.value;
-      try {
-        final decoded = utf8.decode(payload);
-        final json = jsonDecode(decoded);
-        return _sanitizeName(json['user'] ?? "Unknown");
-      } catch (_) {
-        return String.fromCharCodes(payload); // fallback
-      }
+    try {
+      // pick up the first chunk of manufacturerData
+      final data = result.advertisementData.manufacturerData.values.first;
+      final jsonStr = utf8.decode(data);
+      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+      return map['user'] as String? ?? result.device.name;
+    } catch (_) {
+      // fallback to the Bluetooth name or ID
+      return result.device.name.isNotEmpty
+          ? result.device.name
+          : result.device.remoteId.id;
     }
-    return "Unknown Device";
   }
 
-  /// Extracts the encoded status string from manufacturer data, e.g. "available", "pending", etc.
   String extractStatus(ScanResult result) {
-    final data = result.advertisementData.manufacturerData;
-    if (data.isNotEmpty) {
-      final payload = data.entries.first.value;
-      try {
-        final decoded = utf8.decode(payload);
-        final json = jsonDecode(decoded);
-        return json['status'] ?? "available";
-      } catch (_) {
-        return "available";
-      }
+    try {
+      final data = result.advertisementData.manufacturerData.values.first;
+      final jsonStr = utf8.decode(data);
+      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+      return map['status'] as String? ?? 'unknown';
+    } catch (_) {
+      return 'unknown';
     }
-    return "available";
   }
 
   String _sanitizeName(String name) {
