@@ -6,12 +6,8 @@ import 'dart:io';
 class NetworkDiscoveryService {
   static const int port = 9999;
   RawDatagramSocket? _socket;
-  String? _localName;
-  String? _instanceId;
 
-  void start(String name, String instanceId, {required void Function(String, String, String) onFound}) async {
-    _localName = name;
-    _instanceId = instanceId;
+  void start(String displayName, void Function(String, String, String?) onFound) async {
     try {
       _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, port);
       _socket!.broadcastEnabled = true;
@@ -20,64 +16,67 @@ class NetworkDiscoveryService {
           final dg = _socket!.receive();
           if (dg == null) return;
           try {
-            final data = jsonDecode(utf8.decode(dg.data)) as Map<String, dynamic>;
-            if (data['proto'] != 'ath-prox-v1' || data['instanceId'] == _instanceId) return;
-            if (data['type'] == 'status' && data['user'] != null) {
-              onFound(data['instanceId'], data['user'], dg.address.address);
+            final map = jsonDecode(utf8.decode(dg.data)) as Map<String, dynamic>;
+            if (map['proto'] != 'ath-prox-v1') return;
+            final id = map['instanceId'] as String?;
+            final user = map['user'] as String?;
+            if (id != null && user != null) {
+              onFound(id, user, dg.address.address);
             }
           } catch (e) {
             print('[UDP PARSE ERROR] $e');
           }
         }
       });
+
+      // Broadcast status
+      broadcastStatus(displayName, const Uuid().v4());
     } catch (e) {
-      print('[UDP SOCKET ERROR] $e');
+      print('[UDP ERROR] $e');
+    }
+  }
+
+  void broadcastStatus(String name, String id) async {
+    final msg = jsonEncode({
+      'proto': 'ath-prox-v1',
+      'type': 'status',
+      'user': name,
+      'instanceId': id,
+    });
+    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    socket.send(utf8.encode(msg), InternetAddress('255.255.255.255'), port);
+    socket.close();
+    print('[UDP] Broadcasted status message');
+  }
+
+  Future<bool> sendInvite({
+    required String from,
+    required String fromId,
+    required String targetId,
+    required String? targetIp,
+  }) async {
+    if (targetIp == null) return false;
+    try {
+      final msg = jsonEncode({
+        'proto': 'ath-prox-v1',
+        'type': 'invite',
+        'from': from,
+        'instanceId': fromId,
+        'targetId': targetId,
+      });
+      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      socket.send(utf8.encode(msg), InternetAddress(targetIp), port);
+      socket.close();
+      print('[INVITE] Sent over WiFi to $from');
+      return true;
+    } catch (e) {
+      print('[INVITE ERROR] $e');
+      return false;
     }
   }
 
   void stop() {
     _socket?.close();
     _socket = null;
-  }
-
-  void broadcastStatus(String name, String instanceId) async {
-    final message = {
-      'proto': 'ath-prox-v1',
-      'type': 'status',
-      'user': name,
-      'instanceId': instanceId,
-    };
-    final data = utf8.encode(jsonEncode(message));
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-    socket.broadcastEnabled = true;
-    socket.send(data, InternetAddress("255.255.255.255"), port);
-    socket.close();
-    print('[UDP] Broadcasted status message');
-  }
-
-  Future<bool> sendInvite({
-    required String toIp,
-    required String fromName,
-    required String fromId,
-    required String targetId,
-  }) async {
-    try {
-      final message = {
-        'proto': 'ath-prox-v1',
-        'type': 'invite',
-        'from': fromName,
-        'instanceId': fromId,
-        'targetId': targetId,
-      };
-      final data = utf8.encode(jsonEncode(message));
-      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-      socket.send(data, InternetAddress(toIp), port);
-      socket.close();
-      print('[INVITE] Sent over WiFi to $toIp');
-      return true;
-    } catch (e) {
-      print('[INVITE ERROR] $e');
-      return false;
-    }
   }
 }
