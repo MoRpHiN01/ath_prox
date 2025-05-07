@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:uuid/uuid.dart';
 
-/// Simple UDP broadcast discovery service (IPv4)
+/// Simple UDP broadcast discovery service (IPv4) with status broadcasts
 class NetworkDiscoveryService {
   static const int port = 9999;
   late RawDatagramSocket _socket;
@@ -13,9 +13,9 @@ class NetworkDiscoveryService {
   final String _instanceId = const Uuid().v4();
   late String _userName;
 
-  /// Fired when a peer is discovered: IP address and display name
+  /// Fired when a peer is discovered: IP address, display name, and senderId
   void Function(String ip, String name, String senderId) onPeerFound =
-      (ip, name, senderId) {};
+    (ip, name, senderId) {};
 
   /// Start broadcasting and listening
   Future<void> start(String userName) async {
@@ -29,9 +29,11 @@ class NetworkDiscoveryService {
     _socket.broadcastEnabled = true;
     _socket.listen(_handleSocketEvent);
 
-    // Broadcast every 5 seconds
+    // Broadcast status every 5 seconds
     _timer = Timer.periodic(const Duration(seconds: 5), (_) {
       final payload = jsonEncode({
+        'proto': 'ath-prox-v1',
+        'type': 'status',
         'user': _userName,
         'instanceId': _instanceId,
       });
@@ -44,21 +46,24 @@ class NetworkDiscoveryService {
   }
 
   void _handleSocketEvent(RawSocketEvent event) {
-    if (event == RawSocketEvent.read) {
-      final datagram = _socket.receive();
-      if (datagram == null) return;
-      try {
-        final msg = utf8.decode(datagram.data);
-        final map = jsonDecode(msg) as Map<String, dynamic>;
-        final senderId = map['instanceId'] as String?;
-        final name = map['user'] as String?;
-        final ip = datagram.address.address;
-        if (senderId != null && name != null && senderId != _instanceId) {
+    if (event != RawSocketEvent.read) return;
+    final datagram = _socket.receive();
+    if (datagram == null) return;
+    try {
+      final msg = utf8.decode(datagram.data);
+      final map = jsonDecode(msg) as Map<String, dynamic>;
+      if (map['proto'] != 'ath-prox-v1') return;
+      final senderId = map['instanceId'] as String?;
+      final name = map['user'] as String?;
+      final type = map['type'] as String?;
+      final ip = datagram.address.address;
+      if (senderId != null && name != null && senderId != _instanceId) {
+        if (type == 'status' || type == 'invite') {
           onPeerFound(ip, name, senderId);
         }
-      } catch (_) {
-        // ignore bad payloads
       }
+    } catch (_) {
+      // ignore invalid payloads
     }
   }
 
