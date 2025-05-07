@@ -1,11 +1,8 @@
-// lib/screens/home_screen.dart
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -14,139 +11,82 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
-import '../widgets/app_drawer.dart';
-import '../widgets/session_invite_bubble.dart';
 import '../models/user_model.dart';
 import '../models/session.dart';
 import '../services/ble_service.dart';
-import '../services/session_sync_service.dart';
 import '../services/network_discovery_service.dart';
+import '../services/session_sync_service.dart';
+import '../widgets/app_drawer.dart';
+import '../widgets/session_invite_bubble.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
+
   @override
-  _HomeScreenState createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _PeerData {
+  final String id;
+  String name;
+  String status;
+  DateTime? startTime;
+  String? ip;
+
+  _PeerData({required this.id, required this.name, this.status = 'available', this.startTime, this.ip});
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   final BleService _bleService = BleService();
   final FlutterBlePeripheral _blePeripheral = FlutterBlePeripheral();
   final NetworkDiscoveryService _netDisc = NetworkDiscoveryService();
+  final Map<String, _PeerData> _peers = {};
   final String _instanceId = const Uuid().v4();
-
-  late UserModel _user;
-  StreamSubscription<List<ScanResult>>? _scanSub;
-  RawDatagramSocket? _inviteSocket;
 
   bool _isAdvertising = false;
   bool _initialized = false;
-
-  final Map<String, _PeerData> _peers = {};
+  late UserModel _user;
 
   @override
   void initState() {
     super.initState();
-    _initialize();
+    _init();
   }
 
-  Future<void> _initialize() async {
+  Future<void> _init() async {
     if (Platform.isAndroid) {
-      final sdk = (await DeviceInfoPlugin().androidInfo).version.sdkInt ?? 0;
-      final perms = <Permission>[];
-      if (sdk < 31) {
-        perms.add(Permission.locationWhenInUse);
-      } else {
-        perms.addAll([
-          Permission.bluetoothScan,
-          Permission.bluetoothConnect,
-          Permission.bluetoothAdvertise,
-        ]);
+      await [
+        Permission.locationWhenInUse,
+        Permission.bluetooth,
+        Permission.bluetoothScan,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothConnect
+      ].request();
+    }
+
+    FlutterBluePlus.adapterState.listen((state) {
+      if (state != BluetoothAdapterState.on) {
+        Fluttertoast.showToast(msg: 'Bluetooth must be ON');
       }
-      final statuses = await perms.request();
-      if (statuses.values.any((s) => !s.isGranted)) {
-        Fluttertoast.showToast(msg: 'Required permissions not granted');
-        return;
-      }
-    }
-    _startBleScan();
-    await _startInviteSocket();
+    });
+
+    final stream = _bleService.startScan();
+    stream.listen(_handleResult, onError: (e) {
+      Fluttertoast.showToast(msg: '[BLE_SCAN ERROR] $e');
+    });
   }
 
-  void _startBleScan() {
-    try {
-      _bleService.startScan();
-      _scanSub = _bleService.scanResults.listen(_handleBleResults);
-    } catch (e) {
-      Fluttertoast.showToast(msg: 'BLE scan unavailable: $e');
-    }
-  }
+  void _handleResult(ScanResult r) {
+    final peerId = _bleService.extractInstanceId(r);
+    if (peerId == null || peerId == _instanceId) return;
+    final name = _bleService.extractDisplayName(r);
+    final status = _bleService.extractStatus(r);
 
-  Future<void> _startInviteSocket() async {
-    try {
-      _inviteSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, NetworkDiscoveryService.port);
-      _inviteSocket!.broadcastEnabled = true;
-      _inviteSocket!.listen(_handleUdpEvent);
-      debugPrint('[UDP] Listening on port ${NetworkDiscoveryService.port}');
-    } catch (e) {
-      Fluttertoast.showToast(msg: 'UDP listener error: $e');
-    }
-  }
-
-  void _handleBleResults(List<ScanResult> results) {
-    for (final r in results) {
-      final adv = r.advertisementData.manufacturerData;
-      if (!adv.containsKey(0xFF)) continue;
-      try {
-        final map = jsonDecode(utf8.decode(adv[0xFF]!)) as Map<String, dynamic>;
-        if (map['proto'] != 'ath-prox-v1') continue;
-        final peerId = map['instanceId'] as String?;
-        if (peerId == null || peerId == _instanceId) continue;
-        if (map['type'] == 'invite' && map['targetId'] == _instanceId) {
-          final from = map['from'] as String? ?? '';
-          _addOrUpdatePeer(peerId, from, source: 'ble');
-          _showIncomingInvite(from, peerId);
-        } else if (map['type'] == 'status') {
-          final user = map['user'] as String? ?? peerId;
-          _addOrUpdatePeer(peerId, user, source: 'ble');
-        }
-      } catch (e) {
-        debugPrint('[BLE PARSE ERROR] $e');
-      }
-    }
-  }
-
-  void _handleUdpEvent(RawSocketEvent event) {
-    if (event != RawSocketEvent.read) return;
-    final dg = _inviteSocket?.receive();
-    if (dg == null) return;
-    try {
-      final map = jsonDecode(utf8.decode(dg.data)) as Map<String, dynamic>;
-      if (map['proto'] != 'ath-prox-v1') return;
-      final peerId = map['instanceId'] as String?;
-      if (peerId == null || peerId == _instanceId) return;
-      final type = map['type'] as String?;
-      if (type == 'invite' && map['targetId'] == _instanceId) {
-        final from = map['from'] as String? ?? '';
-        debugPrint('[UDP] Invite from $from');
-        _addOrUpdatePeer(peerId, from, source: 'wifi', ip: dg.address.address);
-        _showIncomingInvite(from, peerId);
-      } else if (type == 'status') {
-        final user = map['user'] as String? ?? peerId;
-        _addOrUpdatePeer(peerId, user, source: 'wifi', ip: dg.address.address);
-      }
-    } catch (e) {
-      debugPrint('[UDP PARSE ERROR] $e');
-    }
-  }
-
-  void _addOrUpdatePeer(String id, String name, {required String source, String? ip}) {
-    if (id == _instanceId) return;
-    final existing = _peers[id];
-    if (existing == null) {
-      _peers[id] = _PeerData(id: id, name: name, ip: ip);
+    if (!_peers.containsKey(peerId)) {
+      _peers[peerId] = _PeerData(id: peerId, name: name, status: status);
     } else {
-      existing.name = name;
-      if (ip != null) existing.ip = ip;
+      _peers[peerId]!.status = status;
+      _peers[peerId]!.name = name;
     }
     setState(() {});
   }
@@ -156,20 +96,26 @@ class _HomeScreenState extends State<HomeScreen> {
     super.didChangeDependencies();
     if (!_initialized) {
       _user = Provider.of<UserModel>(context);
-      if (_user.displayName.trim().isNotEmpty) {
-        _netDisc.start(_user.displayName);
-      }
+      _netDisc.start(_user.displayName, onFound: _handleNetPeer);
       _initialized = true;
     }
   }
 
+  void _handleNetPeer(String id, String name, String ip) {
+    if (id == _instanceId) return;
+    if (!_peers.containsKey(id)) {
+      _peers[id] = _PeerData(id: id, name: name, ip: ip);
+    } else {
+      _peers[id]!.ip = ip;
+    }
+    setState(() {});
+  }
+
   @override
   void dispose() {
-    _scanSub?.cancel();
-    _bleService.stopScan();
     _blePeripheral.stop();
     _netDisc.stop();
-    _inviteSocket?.close();
+    FlutterBluePlus.stopScan();
     super.dispose();
   }
 
@@ -177,176 +123,154 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isAdvertising) {
       await _blePeripheral.stop();
       setState(() => _isAdvertising = false);
-      Fluttertoast.showToast(msg: 'Stopped advertising');
-    } else {
+      return;
+    }
+
+    final payload = {
+      'proto': 'ath-prox-v1',
+      'type': 'status',
+      'user': _user.displayName,
+      'instanceId': _instanceId,
+    };
+
+    await _blePeripheral.start(
+      advertiseData: AdvertiseData(
+        manufacturerId: 0xFF,
+        manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
+      ),
+    );
+    setState(() => _isAdvertising = true);
+  }
+
+  void _invitePeer(_PeerData peer) async {
+    if (peer.id == _instanceId) return;
+    if (peer.status != 'available') return;
+
+    setState(() => peer.status = 'pending');
+
+    final sent = await _netDisc.sendInvite(
+      fromName: _user.displayName,
+      fromId: _instanceId,
+      targetId: peer.id,
+      targetIp: peer.ip,
+    );
+
+    if (!sent) {
       final payload = {
         'proto': 'ath-prox-v1',
-        'type': 'status',
-        'user': _user.displayName,
+        'type': 'invite',
+        'from': _user.displayName,
         'instanceId': _instanceId,
+        'targetId': peer.id,
       };
+
       await _blePeripheral.start(
         advertiseData: AdvertiseData(
           manufacturerId: 0xFF,
           manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
         ),
       );
-      setState(() => _isAdvertising = true);
-      Fluttertoast.showToast(msg: 'Started advertising');
     }
   }
 
-  void _refresh() {
-    _scanSub?.cancel();
-    try { _bleService.stopScan(); } catch (_) {}
-    _peers.clear();
-    setState(() {});
-    Future.delayed(const Duration(milliseconds: 500), _startBleScan);
-    Fluttertoast.showToast(msg: 'Refreshing peers...');
-  }
-
-  void _invitePeer(_PeerData peer) {
-    if (peer.status != 'available') return;
-    setState(() => peer.status = 'pending');
-    final msg = {
-      'proto': 'ath-prox-v1',
-      'type': 'invite',
-      'from': _user.displayName,
-      'instanceId': _instanceId,
-      'targetId': peer.id,
-    };
-    if (peer.ip != null) {
-      RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).then((socket) {
-        socket.send(utf8.encode(jsonEncode(msg)), InternetAddress(peer.ip!), NetworkDiscoveryService.port);
-        socket.close();
-        debugPrint('[INVITE] Sent over WiFi to ${peer.name}');
-      });
-    } else {
-      final fallback = msg;
-      _blePeripheral.start(
-        advertiseData: AdvertiseData(
-          manufacturerId: 0xFF,
-          manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(fallback))),
-        ),
-      );
-      Future.delayed(const Duration(seconds: 5), () async {
-        await _toggleAdvertising();
-      });
-    }
-    Fluttertoast.showToast(msg: 'Invite sent to ${peer.name}');
-  }
-
-  void _showIncomingInvite(String name, String id) {
+  void _handleInvite(String name, String id) {
     final peer = _peers[id];
-    if (peer == null || !mounted) return;
-    debugPrint('[INVITE] Showing invite from $name ($id)');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => SessionInviteBubble(
-          deviceName: name,
-          onAccept: () {
-            Navigator.of(context).pop();
-            _handleResponse(peer, true);
-          },
-          onDecline: () {
-            Navigator.of(context).pop();
-            _handleResponse(peer, false);
-          },
-        ),
-      );
-    });
+    if (peer == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => SessionInviteBubble(
+        deviceName: name,
+        onAccept: () {
+          Navigator.of(context).pop();
+          _respond(peer, true);
+        },
+        onDecline: () {
+          Navigator.of(context).pop();
+          _respond(peer, false);
+        },
+      ),
+    );
   }
 
-  void _handleResponse(_PeerData peer, bool accepted) {
+  void _respond(_PeerData peer, bool accept) {
     final now = DateTime.now();
-    setState(() => peer.status = accepted ? 'connected' : 'declined');
-    peer.startTime = accepted ? now : null;
+    setState(() {
+      peer.status = accept ? 'connected' : 'declined';
+      peer.startTime = accept ? now : null;
+    });
     SessionSyncService.syncSessions([
       Session(
         sessionId: now.millisecondsSinceEpoch.toString(),
         deviceId: peer.id,
         deviceName: peer.name,
         startTime: now,
-        status: accepted ? SessionStatus.accepted : SessionStatus.declined,
+        status: accept ? SessionStatus.accepted : SessionStatus.declined,
       )
     ]);
-    Fluttertoast.showToast(msg: accepted ? 'Connected to ${peer.name}' : 'Declined ${peer.name}');
+  }
+
+  void _refresh() {
+    _peers.clear();
+    setState(() {});
+    _init();
   }
 
   @override
   Widget build(BuildContext context) {
-    final nameSet = _user.displayName.trim().isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        title: Text(nameSet ? 'Welcome, ${_user.displayName}' : 'Set Display Name'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh)],
+        title: Text(_user.displayName.isNotEmpty ? 'Welcome, ${_user.displayName}' : 'Set Display Name'),
+        actions: [IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh))],
       ),
-      drawer: AppDrawer(onNavigate: (route) {
-        Navigator.of(context).pop();
-        if (ModalRoute.of(context)!.settings.name != route) {
-          Navigator.of(context).pushReplacementNamed(route);
-        }
-      }),
-      body: nameSet
-          ? Column(
+      drawer: AppDrawer(onNavigate: (r) => Navigator.pushReplacementNamed(context, r)),
+      body: _user.displayName.isEmpty
+          ? Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.pushNamed(context, '/profile'),
+                child: const Text('Set Your Name'),
+              ),
+            )
+          : Column(
               children: [
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: _toggleAdvertising,
                   child: Text(_isAdvertising ? 'Stop Advertising' : 'Start Advertising'),
                 ),
                 Expanded(
                   child: _peers.isEmpty
-                      ? const Center(child: Text('No peers found.'))
+                      ? const Center(child: Text('No peers found'))
                       : ListView(
                           children: _peers.values.map((peer) {
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: peer.status == 'connected'
-                                    ? Colors.blue
+                                    ? Colors.green
                                     : peer.status == 'pending'
                                         ? Colors.amber
                                         : Colors.grey,
-                                radius: 8,
                               ),
                               title: Text(peer.name),
-                              subtitle: peer.status == 'connected' && peer.startTime != null
-                                  ? Text('Timer: ${_format(peer.startTime!)}')
+                              subtitle: peer.startTime != null
+                                  ? Text('Timer: ${_formatDuration(DateTime.now().difference(peer.startTime!))}')
                                   : Text('Status: ${peer.status}'),
                               trailing: ElevatedButton(
                                 onPressed: () => _invitePeer(peer),
-                                child: Text(peer.status == 'connected' ? 'End' : 'Invite'),
+                                child: const Text('Invite'),
                               ),
                             );
                           }).toList(),
                         ),
-                ),
+                )
               ],
-            )
-          : Center(
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pushNamed('/profile'),
-                child: const Text('Set Your Name'),
-              ),
             ),
     );
   }
 
-  String _format(DateTime start) {
-    final d = DateTime.now().difference(start);
+  String _formatDuration(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
-    return '${d.inHours}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+    return '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
   }
-}
-
-class _PeerData {
-  final String id;
-  String name;
-  String status;
-  DateTime? startTime;
-  String? ip;
-  _PeerData({required this.id, required this.name, this.status = 'available', this.startTime, this.ip});
 }

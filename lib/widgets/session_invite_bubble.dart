@@ -1,3 +1,4 @@
+// lib/widgets/session_invite_bubble.dart
 import 'package:flutter/material.dart';
 
 class SessionInviteBubble extends StatelessWidget {
@@ -7,12 +8,12 @@ class SessionInviteBubble extends StatelessWidget {
   final VoidCallback? onMaybeLater;
 
   const SessionInviteBubble({
-    super.key,
+    Key? key,
     required this.deviceName,
     required this.onAccept,
     required this.onDecline,
     this.onMaybeLater,
-  });
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
