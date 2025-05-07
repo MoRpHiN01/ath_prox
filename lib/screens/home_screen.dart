@@ -10,6 +10,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:provider/provider.dart';
 
+import '../widgets/app_drawer.dart';
 import '../models/user_model.dart';
 import '../models/session.dart';
 import '../services/ble_service.dart';
@@ -19,7 +20,7 @@ import '../services/session_sync_service.dart';
 import '../widgets/session_invite_bubble.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,11 +32,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final WifiService _wifiService = WifiService();
   final NfcService _nfcService = NfcService();
 
-  final List<Session> activeSessions = [];
-  final List<Session> completedSessions = [];
   final Map<String, String> deviceStatuses = {};
   final Map<String, DateTime> sessionStartTimes = {};
-
   bool _isAdvertising = false;
   late UserModel user;
 
@@ -54,17 +52,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _toggleAdvertising() async {
+  Future<void> _toggleAdvertising() async {
     if (_isAdvertising) {
       await _blePeripheral.stop();
       setState(() => _isAdvertising = false);
-      Fluttertoast.showToast(msg: "Stopped BLE Advertising");
+      Fluttertoast.showToast(msg: 'Stopped BLE Advertising');
     } else {
       final payload = jsonEncode({
-        "user": user.displayName,
-        "status": "available",
-        "ssid": await _wifiService.getSSID(),
-        "ip": await _wifiService.getCurrentIP(),
+        'user': user.displayName,
+        'status': 'available',
+        'ssid': await _wifiService.getSSID(),
+        'ip': await _wifiService.getCurrentIP(),
       });
 
       await _blePeripheral.start(
@@ -75,7 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       setState(() => _isAdvertising = true);
-      Fluttertoast.showToast(msg: "Started BLE Advertising");
+      Fluttertoast.showToast(msg: 'Started BLE Advertising');
     }
   }
 
@@ -90,25 +88,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     setState(() {
-      deviceStatuses[deviceId] = accepted ? "connected" : "declined";
+      deviceStatuses[deviceId] = accepted ? 'connected' : 'declined';
       if (accepted) {
-        activeSessions.add(session);
         sessionStartTimes[deviceId] = now;
-      } else {
-        completedSessions.add(session);
       }
     });
 
     SessionSyncService.syncSessions([session]);
     Fluttertoast.showToast(
-        msg: accepted ? "Session started with $displayName" : "$displayName declined");
+      msg: accepted
+          ? 'Session started with $displayName'
+          : '$displayName declined',
+    );
   }
 
-  void _showInviteBubble(BuildContext context, ScanResult result, String displayName) {
-    final deviceId = result.device.remoteId.str;
-
-    if (deviceStatuses[deviceId] == "pending" || deviceStatuses[deviceId] == "connected") return;
-    setState(() => deviceStatuses[deviceId] = "pending");
+  void _showInviteBubble(
+      BuildContext context, ScanResult result, String displayName) {
+    final deviceId = result.device.remoteId.id;
+    if (deviceStatuses[deviceId] == 'pending' ||
+        deviceStatuses[deviceId] == 'connected') return;
+    setState(() => deviceStatuses[deviceId] = 'pending');
 
     showDialog(
       context: context,
@@ -124,8 +123,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleNfcInvite(String peerId, String peerName) {
     if (deviceStatuses.containsKey(peerId)) return;
 
-final simulatedResult = ScanResult(
-  device: BluetoothDevice(remoteId: DeviceIdentifier(peerId)),
+    final simulatedResult = ScanResult(
+      device: BluetoothDevice(remoteId: DeviceIdentifier(peerId)),
       advertisementData: AdvertisementData(
         advName: peerName,
         txPowerLevel: -10,
@@ -133,24 +132,24 @@ final simulatedResult = ScanResult(
         connectable: true,
         manufacturerData: {},
         serviceData: {},
-		serviceUuids: [],
+        serviceUuids: [],
       ),
-  rssi: -50,
-  timeStamp: DateTime.now(),
-);
+      rssi: -50,
+      timeStamp: DateTime.now(),
+    );
 
     _showInviteBubble(context, simulatedResult, peerName);
   }
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case "connected":
+      case 'connected':
         return Colors.blue;
-      case "pending":
+      case 'pending':
         return Colors.amber;
-      case "declined":
+      case 'declined':
         return Colors.red;
-      case "lost":
+      case 'lost':
         return Colors.grey;
       default:
         return Colors.green;
@@ -164,10 +163,16 @@ final simulatedResult = ScanResult(
     return '${d.inHours}:$minutes:$seconds';
   }
 
+  void _handleNavigation(String route) {
+    Navigator.of(context).pop();
+    if (ModalRoute.of(context)!.settings.name != route) {
+      Navigator.of(context).pushReplacementNamed(route);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     user = Provider.of<UserModel>(context);
-
     return Scaffold(
       appBar: AppBar(
         title: Text('Welcome, ${user.displayName}'),
@@ -179,52 +184,13 @@ final simulatedResult = ScanResult(
                   ? Image.asset(user.profileImagePath).image
                   : const AssetImage('assets/images/logo.png'),
             ),
-          )
+          ),
         ],
       ),
-      drawer: Drawer(
-        child: ListView(
-          children: [
-            UserAccountsDrawerHeader(
-              accountName: Text(user.displayName),
-              accountEmail: Text(user.email ?? 'No email set'),
-              currentAccountPicture: CircleAvatar(
-                backgroundImage: user.profileImagePath.isNotEmpty
-                    ? Image.asset(user.profileImagePath).image
-                    : const AssetImage('assets/images/logo.png'),
-              ),
-            ),
-            ListTile(
-              title: const Text('Home'),
-              onTap: () => Navigator.pushReplacementNamed(context, '/'),
-            ),
-            ListTile(
-              title: const Text('Profile'),
-              onTap: () => Navigator.pushNamed(context, '/profile'),
-            ),
-            ListTile(
-              title: const Text('Settings'),
-              onTap: () => Navigator.pushNamed(context, '/settings'),
-            ),
-            ListTile(
-              title: const Text('Support'),
-              onTap: () => Navigator.pushNamed(context, '/support'),
-            ),
-            ListTile(
-              title: const Text('Reports'),
-              onTap: () => Navigator.pushNamed(context, '/reports'),
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text("About"),
-              onTap: () => Navigator.pushNamed(context, '/about'),
-            ),
-          ],
-        ),
-      ),
+      drawer: AppDrawer(onNavigate: _handleNavigation),
       body: Column(
         children: [
+          const SizedBox(height: 8),
           ElevatedButton(
             onPressed: _toggleAdvertising,
             child: Text(_isAdvertising ? 'Stop Advertising' : 'Start Advertising'),
@@ -233,13 +199,15 @@ final simulatedResult = ScanResult(
             child: StreamBuilder<List<ScanResult>>(
               stream: _bleService.scanResults,
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
                 final results = snapshot.data!;
                 return ListView.builder(
                   itemCount: results.length,
                   itemBuilder: (context, index) {
                     final result = results[index];
-                    final deviceId = result.device.remoteId.str;
+                    final deviceId = result.device.remoteId.id;
                     final displayName = _bleService.extractDisplayName(result);
                     final status = _bleService.extractStatus(result);
                     final startTime = sessionStartTimes[deviceId];
@@ -256,29 +224,29 @@ final simulatedResult = ScanResult(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('$deviceId\nStatus: $status'),
-                          if (status == "connected" && startTime != null)
+                          if (status == 'connected' && startTime != null)
                             StreamBuilder(
                               stream: Stream.periodic(const Duration(seconds: 1)),
-                              builder: (context, snapshot) {
+                              builder: (_, __) {
                                 final elapsed = DateTime.now().difference(startTime);
                                 return Text('Timer: ${_formatDuration(elapsed)}');
                               },
-                            )
+                            ),
                         ],
                       ),
                       trailing: ElevatedButton(
                         onPressed: () {
-                          if (status == "connected") {
+                          if (status == 'connected') {
                             setState(() {
-                              deviceStatuses[deviceId] = "available";
+                              deviceStatuses[deviceId] = 'available';
                               sessionStartTimes.remove(deviceId);
                             });
-                            Fluttertoast.showToast(msg: "Session ended with $displayName");
+                            Fluttertoast.showToast(msg: 'Session ended with $displayName');
                           } else {
                             _showInviteBubble(context, result, displayName);
                           }
                         },
-                        child: Text(status == "connected" ? "End Session" : "Invite"),
+                        child: Text(status == 'connected' ? 'End Session' : 'Invite'),
                       ),
                     );
                   },

@@ -1,19 +1,22 @@
 // lib/screens/support_screen.dart
 
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:provider/provider.dart';
+
 import '../models/user_model.dart';
+import '../widgets/app_drawer.dart';
 
 class SupportScreen extends StatefulWidget {
-  const SupportScreen({super.key});
+  const SupportScreen({Key? key}) : super(key: key);
 
   @override
-  State<SupportScreen> createState() => _SupportScreenState();
+  _SupportScreenState createState() => _SupportScreenState();
 }
 
 class _SupportScreenState extends State<SupportScreen> {
@@ -33,7 +36,9 @@ class _SupportScreenState extends State<SupportScreen> {
   void _prefillUserInfo() {
     final user = Provider.of<UserModel>(context, listen: false);
     _nameCtrl.text = user.displayName;
-    if (user.email != null) _emailCtrl.text = user.email!;
+    if (user.email != null) {
+      _emailCtrl.text = user.email!;
+    }
   }
 
   Future<Map<String, dynamic>> _getDeviceInfo() async {
@@ -65,7 +70,9 @@ class _SupportScreenState extends State<SupportScreen> {
 
     try {
       final deviceInfo = await _getDeviceInfo();
-      await FirebaseFirestore.instance.collection('support_requests').add({
+      await FirebaseFirestore.instance
+          .collection('support_requests')
+          .add({
         'name': _nameCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
         'subject': _subjectCtrl.text.trim(),
@@ -74,24 +81,31 @@ class _SupportScreenState extends State<SupportScreen> {
         'deviceInfo': deviceInfo,
       });
 
-      Fluttertoast.showToast(msg: "Support request submitted");
+      Fluttertoast.showToast(msg: 'Support request submitted');
       _formKey.currentState!.reset();
     } catch (e) {
-      Fluttertoast.showToast(msg: "Error submitting request: $e");
+      Fluttertoast.showToast(msg: 'Error submitting request: $e');
     } finally {
       setState(() => isSubmitting = false);
     }
   }
 
   Future<void> _launchWhatsApp() async {
-    const phone = "+27824604953"; // 🔧 move to config.dart if needed
-    final message = Uri.encodeComponent("Hi, I need help with ATH Proximity...");
-    final whatsappUrl = Uri.parse("https://wa.me/$phone?text=$message");
+    const phone = '+27824604953';
+    final message = Uri.encodeComponent('Hi, I need help with ATH Proximity...');
+    final whatsappUrl = Uri.parse('https://wa.me/$phone?text=$message');
 
     if (await canLaunchUrl(whatsappUrl)) {
       await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
     } else {
-      Fluttertoast.showToast(msg: "Could not open WhatsApp");
+      Fluttertoast.showToast(msg: 'Could not open WhatsApp');
+    }
+  }
+
+  void _handleNavigation(String route) {
+    Navigator.of(context).pop();
+    if (ModalRoute.of(context)!.settings.name != route) {
+      Navigator.of(context).pushReplacementNamed(route);
     }
   }
 
@@ -99,6 +113,7 @@ class _SupportScreenState extends State<SupportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Support')),
+      drawer: AppDrawer(onNavigate: _handleNavigation),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -107,36 +122,43 @@ class _SupportScreenState extends State<SupportScreen> {
             children: [
               TextFormField(
                 controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: "Name"),
+                decoration: const InputDecoration(labelText: 'Name'),
                 validator: (value) => value!.isEmpty ? 'Required' : null,
               ),
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _emailCtrl,
-                decoration: const InputDecoration(labelText: "Email"),
+                decoration: const InputDecoration(labelText: 'Email'),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) => value!.isEmpty ? 'Required' : null,
               ),
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _subjectCtrl,
-                decoration: const InputDecoration(labelText: "Subject"),
+                decoration: const InputDecoration(labelText: 'Subject'),
                 validator: (value) => value!.isEmpty ? 'Required' : null,
               ),
+              const SizedBox(height: 10),
               TextFormField(
                 controller: _messageCtrl,
-                decoration: const InputDecoration(labelText: "Message"),
+                decoration: const InputDecoration(labelText: 'Message'),
                 maxLines: 5,
                 validator: (value) => value!.isEmpty ? 'Required' : null,
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
-                icon: const Icon(Icons.send),
-                label: Text(isSubmitting ? "Submitting..." : "Submit"),
+                icon: isSubmitting ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ) : const Icon(Icons.send),
+                label: Text(isSubmitting ? 'Submitting...' : 'Submit'),
                 onPressed: isSubmitting ? null : _submitSupportRequest,
               ),
               const SizedBox(height: 10),
               ElevatedButton.icon(
                 icon: const Icon(Icons.chat),
-                label: const Text("Contact via WhatsApp"),
+                label: const Text('Contact via WhatsApp'),
                 onPressed: _launchWhatsApp,
               ),
             ],

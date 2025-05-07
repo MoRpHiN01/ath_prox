@@ -1,14 +1,15 @@
 // lib/main.dart
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-
-import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-//import 'firebase_options.dart';
+
 import 'models/user_model.dart';
 import 'screens/home_screen.dart';
 import 'screens/profile_screen.dart';
@@ -17,25 +18,43 @@ import 'screens/about_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/support_screen.dart';
 import 'screens/report_screen.dart';
+import 'services/background_sync_service.dart';
 import 'utils/themes.dart';
-//import 'services/background_sync_service.dart';
 import 'utils/firebase_utils.dart';
 
-void main() async {
+/// Entry point for the application
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   await initializeFirebaseIfNeeded();
-  
+
+  // Set up notification channel for the foreground service
+  final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  const serviceChannel = AndroidNotificationChannel(
+    'bg_service_ch',
+    'Background Service',
+    description: 'This channel is used for background service notifications',
+    importance: Importance.low,
+  );
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(serviceChannel);
+
   final service = FlutterBackgroundService();
   await service.configure(
     androidConfiguration: AndroidConfiguration(
-      onStart: onStart,                        // your entry-point
-      autoStart: true,                         // launches on boot
-      isForegroundMode: true,                  // show a notification
-      notificationChannelId: 'bg_service_ch',  // must match your channel
+      onStart: onStart,
+      autoStart: true,
+      isForegroundMode: true,
+      notificationChannelId: serviceChannel.id,
       initialNotificationTitle: 'ATH Proximity',
       initialNotificationContent: 'Service running',
       foregroundServiceNotificationId: 888,
+      foregroundServiceTypes: <AndroidForegroundType>[
+        AndroidForegroundType.location,
+        AndroidForegroundType.connectedDevice,
+      ],
     ),
     iosConfiguration: IosConfiguration(
       autoStart: true,
@@ -48,17 +67,20 @@ void main() async {
   runApp(const MyApp());
 }
 
+/// Background service entry-point
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) {
-  DartPluginRegistrant.ensureInitialized();
-  // …your background logic here…
+  // Avoid calling DartPluginRegistrant here to prevent isolate errors
+  // TODO: Add your background logic (e.g., BLE scanning, sync) using ServiceInstance
 }
 
+/// iOS background fetch handler
 Future<bool> onIosBackground(ServiceInstance service) async {
-  // iOS background fetch logic, if needed
+  // iOS background fetch logic (optional)
   return true;
 }
 
+/// Main application widget
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
