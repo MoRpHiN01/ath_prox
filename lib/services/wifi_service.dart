@@ -1,38 +1,75 @@
-// lib/services/wifi_service.dart
+// lib/services/ble_service.dart
 
-import 'dart:io';
-import 'package:network_info_plus/network_info_plus.dart';
+import 'dart:convert';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter/foundation.dart';
 
-/// Service for querying Wi‑Fi network metadata
-class WifiService {
-  final NetworkInfo _networkInfo = NetworkInfo();
+class BleService {
+  final Stream<List<ScanResult>> scanResults = FlutterBluePlus.scanResults;
 
-  /// Logs the current Wi‑Fi SSID and IP, or notes if not connected
-  Future<void> checkWifiStatus() async {
-    final ssid = await getSSID() ?? 'Unknown SSID';
-    final ip = await getCurrentIP() ?? 'Unknown IP';
-    if (ssid == 'Unknown SSID' || ip == 'Unknown IP') {
-      print('[WIFI] Not connected');
-    } else {
-      print('[WIFI] Connected to $ssid ($ip)');
+  Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
+    try {
+      debugPrint("[BLE_SERVICE] Starting scan...");
+      await FlutterBluePlus.startScan(timeout: timeout);
+      debugPrint("[BLE_SERVICE] Scan started");
+    } catch (e) {
+      debugPrint("[BLE_SERVICE] Scan start failed: $e");
     }
   }
 
-  /// Returns the current Wi‑Fi SSID, or null if unavailable
-  Future<String?> getSSID() async {
-    return await _networkInfo.getWifiName();
+  Future<void> stopScan() async {
+    try {
+      debugPrint("[BLE_SERVICE] Stopping scan...");
+      await FlutterBluePlus.stopScan();
+      debugPrint("[BLE_SERVICE] Scan stopped");
+    } catch (e) {
+      debugPrint("[BLE_SERVICE] Scan stop failed: $e");
+    }
   }
 
-  /// Returns the device’s IPv4 address on the Wi‑Fi network, or null
-  Future<String?> getCurrentIP() async {
-    return await _networkInfo.getWifiIP();
+  String? extractPeerId(ScanResult result) {
+    try {
+      final data = result.advertisementData.manufacturerData[0xFF];
+      if (data == null) return null;
+      final map = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+      return map['instanceId'] as String?;
+    } catch (e) {
+      debugPrint("[BLE_SERVICE] extractPeerId error: $e");
+      return null;
+    }
   }
 
-  /// Convenience getter for both SSID and IP in one call
-  Future<Map<String, String?>> getMetadata() async {
-    return {
-      'ssid': await getSSID(),
-      'ip': await getCurrentIP(),
-    };
+  String extractDisplayName(ScanResult result) {
+    try {
+      final data = result.advertisementData.manufacturerData[0xFF];
+      if (data == null) return _fallbackName(result);
+      final map = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+      return _sanitizeName(map['user'] as String? ?? _fallbackName(result));
+    } catch (e) {
+      debugPrint("[BLE_SERVICE] extractDisplayName error: $e");
+      return _fallbackName(result);
+    }
+  }
+
+  String extractStatus(ScanResult result) {
+    try {
+      final data = result.advertisementData.manufacturerData[0xFF];
+      if (data == null) return 'unknown';
+      final map = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+      return map['status'] as String? ?? 'unknown';
+    } catch (e) {
+      debugPrint("[BLE_SERVICE] extractStatus error: $e");
+      return 'unknown';
+    }
+  }
+
+  String _fallbackName(ScanResult result) {
+    final fallback = result.device.name.isNotEmpty ? result.device.name : result.device.remoteId.str;
+    return _sanitizeName(fallback);
+  }
+
+  String _sanitizeName(String name) {
+    final clean = name.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim();
+    return clean.isEmpty ? "Unknown Device" : clean;
   }
 }

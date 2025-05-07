@@ -64,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final statuses = await perms.request();
       if (statuses.values.any((s) => !s.isGranted)) {
-        Fluttertoast.showToast(msg: 'Permissions not granted');
+        Fluttertoast.showToast(msg: 'Required permissions not granted');
         return;
       }
     }
@@ -72,12 +72,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await _startInviteSocket();
   }
 
-  Future<void> _startBleScan() async {
+  void _startBleScan() {
     try {
-      await _bleService.startScan();
+      _bleService.startScan();
       _scanSub = _bleService.scanResults.listen(_handleBleResults);
     } catch (e) {
-      debugPrint('[BLE] Scan error: $e');
+      Fluttertoast.showToast(msg: 'BLE scan unavailable: $e');
     }
   }
 
@@ -86,8 +86,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _inviteSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, NetworkDiscoveryService.port);
       _inviteSocket!.broadcastEnabled = true;
       _inviteSocket!.listen(_handleUdpEvent);
+      debugPrint('[UDP] Listening on port ${NetworkDiscoveryService.port}');
     } catch (e) {
-      debugPrint('[UDP] Bind error: $e');
+      Fluttertoast.showToast(msg: 'UDP listener error: $e');
     }
   }
 
@@ -96,18 +97,20 @@ class _HomeScreenState extends State<HomeScreen> {
       final adv = r.advertisementData.manufacturerData;
       if (!adv.containsKey(0xFF)) continue;
       try {
-        final data = utf8.decode(adv[0xFF]!);
-        final map = jsonDecode(data) as Map<String, dynamic>;
+        final map = jsonDecode(utf8.decode(adv[0xFF]!)) as Map<String, dynamic>;
         if (map['proto'] != 'ath-prox-v1') continue;
         final peerId = map['instanceId'] as String?;
         if (peerId == null || peerId == _instanceId) continue;
-        final name = map['user'] as String? ?? 'Unknown';
-        _addOrUpdatePeer(peerId, name, source: 'ble');
         if (map['type'] == 'invite' && map['targetId'] == _instanceId) {
-          _showIncomingInvite(name, peerId);
+          final from = map['from'] as String? ?? '';
+          _addOrUpdatePeer(peerId, from, source: 'ble');
+          _showIncomingInvite(from, peerId);
+        } else if (map['type'] == 'status') {
+          final user = map['user'] as String? ?? peerId;
+          _addOrUpdatePeer(peerId, user, source: 'ble');
         }
       } catch (e) {
-        debugPrint('[BLE] Parse error: $e');
+        debugPrint('[BLE PARSE ERROR] $e');
       }
     }
   }
@@ -121,10 +124,15 @@ class _HomeScreenState extends State<HomeScreen> {
       if (map['proto'] != 'ath-prox-v1') return;
       final peerId = map['instanceId'] as String?;
       if (peerId == null || peerId == _instanceId) return;
-      final name = map['from'] as String? ?? 'Unknown';
-      _addOrUpdatePeer(peerId, name, source: 'wifi', ip: dg.address.address);
-      if (map['type'] == 'invite' && map['targetId'] == _instanceId) {
-        _showIncomingInvite(name, peerId);
+      final type = map['type'] as String?;
+      if (type == 'invite' && map['targetId'] == _instanceId) {
+        final from = map['from'] as String? ?? '';
+        debugPrint('[UDP] Invite from $from');
+        _addOrUpdatePeer(peerId, from, source: 'wifi', ip: dg.address.address);
+        _showIncomingInvite(from, peerId);
+      } else if (type == 'status') {
+        final user = map['user'] as String? ?? peerId;
+        _addOrUpdatePeer(peerId, user, source: 'wifi', ip: dg.address.address);
       }
     } catch (e) {
       debugPrint('[UDP PARSE ERROR] $e');
@@ -169,6 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isAdvertising) {
       await _blePeripheral.stop();
       setState(() => _isAdvertising = false);
+      Fluttertoast.showToast(msg: 'Stopped advertising');
     } else {
       final payload = {
         'proto': 'ath-prox-v1',
@@ -183,18 +192,20 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
       setState(() => _isAdvertising = true);
+      Fluttertoast.showToast(msg: 'Started advertising');
     }
   }
 
   void _refresh() {
     _scanSub?.cancel();
-    _bleService.stopScan();
+    try { _bleService.stopScan(); } catch (_) {}
     _peers.clear();
     setState(() {});
     Future.delayed(const Duration(milliseconds: 500), _startBleScan);
+    Fluttertoast.showToast(msg: 'Refreshing peers...');
   }
 
-  Future<void> _invitePeer(_PeerData peer) async {
+  void _invitePeer(_PeerData peer) {
     if (peer.status != 'available') return;
     setState(() => peer.status = 'pending');
     final msg = {
@@ -205,17 +216,32 @@ class _HomeScreenState extends State<HomeScreen> {
       'targetId': peer.id,
     };
     if (peer.ip != null) {
-      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-      socket.send(utf8.encode(jsonEncode(msg)), InternetAddress(peer.ip!), NetworkDiscoveryService.port);
-      socket.close();
+      RawDatagramSocket.bind(InternetAddress.anyIPv4, 0).then((socket) {
+        socket.send(utf8.encode(jsonEncode(msg)), InternetAddress(peer.ip!), NetworkDiscoveryService.port);
+        socket.close();
+        debugPrint('[INVITE] Sent over WiFi to ${peer.name}');
+      });
+    } else {
+      final fallback = msg;
+      _blePeripheral.start(
+        advertiseData: AdvertiseData(
+          manufacturerId: 0xFF,
+          manufacturerData: Uint8List.fromList(utf8.encode(jsonEncode(fallback))),
+        ),
+      );
+      Future.delayed(const Duration(seconds: 5), () async {
+        await _toggleAdvertising();
+      });
     }
     Fluttertoast.showToast(msg: 'Invite sent to ${peer.name}');
   }
 
   void _showIncomingInvite(String name, String id) {
     final peer = _peers[id];
-    if (peer == null) return;
+    if (peer == null || !mounted) return;
+    debugPrint('[INVITE] Showing invite from $name ($id)');
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -247,6 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
         status: accepted ? SessionStatus.accepted : SessionStatus.declined,
       )
     ]);
+    Fluttertoast.showToast(msg: accepted ? 'Connected to ${peer.name}' : 'Declined ${peer.name}');
   }
 
   @override
@@ -279,13 +306,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: peer.status == 'connected'
-                                    ? Colors.green
+                                    ? Colors.blue
                                     : peer.status == 'pending'
-                                        ? Colors.orange
+                                        ? Colors.amber
                                         : Colors.grey,
+                                radius: 8,
                               ),
                               title: Text(peer.name),
-                              subtitle: Text('Status: ${peer.status}'),
+                              subtitle: peer.status == 'connected' && peer.startTime != null
+                                  ? Text('Timer: ${_format(peer.startTime!)}')
+                                  : Text('Status: ${peer.status}'),
                               trailing: ElevatedButton(
                                 onPressed: () => _invitePeer(peer),
                                 child: Text(peer.status == 'connected' ? 'End' : 'Invite'),
@@ -303,6 +333,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
     );
+  }
+
+  String _format(DateTime start) {
+    final d = DateTime.now().difference(start);
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${d.inHours}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
   }
 }
 
