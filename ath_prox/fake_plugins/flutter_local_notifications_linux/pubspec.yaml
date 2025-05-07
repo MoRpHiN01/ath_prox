@@ -1,0 +1,5 @@
+name: flutter_local_notifications_linux
+description: Dummy plugin to suppress flutter_local_notifications Linux reference
+version: 0.0.1
+environment:
+  sdk: ">=2.17.0 <4.0.0"

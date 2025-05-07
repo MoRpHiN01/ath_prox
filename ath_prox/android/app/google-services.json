@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "562965496906",
+    "project_id": "ath-celcom-proximity-447d9",
+    "storage_bucket": "ath-celcom-proximity-447d9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:562965496906:android:8346575a823cc361f552b3",
+        "android_client_info": {
+          "package_name": "com.ath.proximity"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8cGlWdk9MR0Re5fYOKf6N9zM3zewi3eg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
