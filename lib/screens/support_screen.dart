@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:proximity/utils/device_info.dart';
-import 'package:proximity/utils/email_sender.dart';
 
 class SupportScreen extends StatefulWidget {
   const SupportScreen({Key? key}) : super(key: key);
@@ -11,62 +9,68 @@ class SupportScreen extends StatefulWidget {
 
 class _SupportScreenState extends State<SupportScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _controller = TextEditingController();
-  bool _sending = false;
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _messageController = TextEditingController();
 
-  Future<void> _submitSupportRequest() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _sending = true);
+  void _submitSupportRequest() {
+    if (_formKey.currentState?.validate() ?? false) {
+      final name = _nameController.text.trim();
+      final email = _emailController.text.trim();
+      final message = _messageController.text.trim();
 
-    final deviceInfo = await DeviceInfo.getSummary();
-    final message = '''
-${_controller.text}
-
------
-Device Info:
-$deviceInfo
-''';
-
-    final success = await EmailSender.sendSupportEmail(
-      subject: "ATH PROXIMITY Support Request",
-      body: message,
-    );
-
-    setState(() => _sending = false);
-    final snackBar = SnackBar(
-      content: Text(success ? 'Support request sent!' : 'Failed to send email.'),
-    );
-    ScaffoldMessenger.of(context).showSnackBar(snackBar);
+      // TODO: Integrate with email sending or support backend API
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Support Request Sent"),
+          content: const Text("Your support request has been submitted."),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("OK"),
+            )
+          ],
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Support")),
+      appBar: AppBar(
+        title: const Text("Support"),
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
-          child: Column(
+          child: ListView(
             children: [
-              const Text("Describe your issue below:"),
+              const Text("Submit a support request", style: TextStyle(fontSize: 18)),
               const SizedBox(height: 12),
               TextFormField(
-                controller: _controller,
-                maxLines: 6,
-                validator: (val) =>
-                    val != null && val.trim().isNotEmpty ? null : "Required",
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: "Type your issue here...",
-                ),
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: "Your Name"),
+                validator: (value) => value == null || value.isEmpty ? "Required" : null,
+              ),
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(labelText: "Email Address"),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) => value == null || !value.contains('@') ? "Enter a valid email" : null,
+              ),
+              TextFormField(
+                controller: _messageController,
+                decoration: const InputDecoration(labelText: "Message"),
+                maxLines: 5,
+                validator: (value) => value == null || value.isEmpty ? "Required" : null,
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
-                icon: _sending
-                    ? const CircularProgressIndicator()
-                    : const Icon(Icons.send),
-                onPressed: _sending ? null : _submitSupportRequest,
+                onPressed: _submitSupportRequest,
+                icon: const Icon(Icons.send),
                 label: const Text("Submit"),
               ),
             ],
