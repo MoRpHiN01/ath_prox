@@ -1,2 +1,17 @@
-// This is a placeholder. Replace the session invite logic accordingly.
-// This assumes integration with your session state management.
+import 'package:flutter/material.dart';
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Nearby Devices'),
+      ),
+      body: const Center(
+        child: Text('Scanning for devices...'),
+      ),
+    );
+  }
+}
