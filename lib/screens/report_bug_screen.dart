@@ -1,71 +1,68 @@
-
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ReportBugScreen extends StatefulWidget {
   const ReportBugScreen({Key? key}) : super(key: key);
 
   @override
-  _ReportBugScreenState createState() => _ReportBugScreenState();
+  State<ReportBugScreen> createState() => _ReportBugScreenState();
 }
 
 class _ReportBugScreenState extends State<ReportBugScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _descriptionController = TextEditingController();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
 
-  @override
-  void dispose() {
-    _descriptionController.dispose();
-    super.dispose();
-  }
-
-  void _submitReport() {
-    if (_formKey.currentState?.validate() ?? false) {
-      final description = _descriptionController.text;
-
-      // TODO: Integrate with bug reporting system (e.g., JIRA or email)
-      print("Bug Report Submitted: $description");
-
+  Future<void> _submitBugReport() async {
+    final String subject = Uri.encodeComponent("Bug Report: ${_titleController.text}");
+    final String body = Uri.encodeComponent(_descriptionController.text);
+    final Uri emailUri = Uri(
+      scheme: 'mailto',
+      path: 'jira@getconnected.co.za',
+      query: 'subject=$subject&body=$body',
+    );
+    if (await canLaunchUrl(emailUri)) {
+      await launchUrl(emailUri);
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bug report submitted. Thank you!')),
+        const SnackBar(content: Text("Could not open email client.")),
       );
-      _descriptionController.clear();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Report a Bug')),
+      appBar: AppBar(title: const Text("Report a Bug")),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Describe the issue you encountered:'),
-              const SizedBox(height: 8),
-              TextFormField(
+        child: Column(
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: 'Bug Title',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: TextField(
                 controller: _descriptionController,
-                maxLines: 6,
+                maxLines: null,
+                expands: true,
                 decoration: const InputDecoration(
+                  labelText: 'Bug Description',
                   border: OutlineInputBorder(),
-                  hintText: 'Enter bug description...',
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter a description';
-                  }
-                  return null;
-                },
               ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _submitReport,
-                child: const Text('Submit Bug Report'),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _submitBugReport,
+              icon: const Icon(Icons.bug_report),
+              label: const Text("Submit Report"),
+            )
+          ],
         ),
       ),
     );

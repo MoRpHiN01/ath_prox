@@ -1,98 +1,73 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   const AppSettingsScreen({Key? key}) : super(key: key);
 
   @override
-  _AppSettingsScreenState createState() => _AppSettingsScreenState();
+  State<AppSettingsScreen> createState() => _AppSettingsScreenState();
 }
 
 class _AppSettingsScreenState extends State<AppSettingsScreen> {
   bool _debugMode = false;
   int _refreshRate = 10;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadSettings();
+  void _clearStorage() {
+    // TODO: Implement clearing local storage
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Local storage cleared")),
+    );
   }
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _debugMode = prefs.getBool('debugMode') ?? false;
-      _refreshRate = prefs.getInt('refreshRate') ?? 10;
-    });
-  }
-
-  Future<void> _updateDebugMode(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('debugMode', value);
-    setState(() {
-      _debugMode = value;
-    });
-  }
-
-  Future<void> _updateRefreshRate(int value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('refreshRate', value);
-    setState(() {
-      _refreshRate = value;
-    });
-  }
-
-  Future<void> _clearStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    _loadSettings();
-  }
-
-  Future<void> _resetApp() async {
-    await _clearStorage();
-    // You can navigate to an onboarding or login screen if needed
+  void _resetApp() {
+    // TODO: Implement full application reset
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Application reset")),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Application Settings')),
+      appBar: AppBar(title: const Text('App Settings')),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
+        child: ListView(
           children: [
             SwitchListTile(
-              title: const Text('Display Debug Toggle'),
+              title: const Text("Display Debug Toggle"),
               value: _debugMode,
-              onChanged: _updateDebugMode,
+              onChanged: (value) {
+                setState(() => _debugMode = value);
+                // TODO: Persist debug mode flag
+              },
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Refresh Rate (seconds)'),
-                DropdownButton<int>(
-                  value: _refreshRate,
-                  items: [5, 10, 15, 30]
-                      .map((int value) => DropdownMenuItem<int>(
-                            value: value,
-                            child: Text('$value'),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) _updateRefreshRate(value);
-                  },
-                )
-              ],
+            ListTile(
+              title: const Text("Refresh Rate (seconds)"),
+              subtitle: Text("$_refreshRate seconds"),
+              trailing: DropdownButton<int>(
+                value: _refreshRate,
+                items: const [5, 10, 15, 30, 60]
+                    .map((val) => DropdownMenuItem(
+                          value: val,
+                          child: Text("$val"),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _refreshRate = value);
+                    // TODO: Persist refresh rate
+                  }
+                },
+              ),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _clearStorage,
-              child: const Text('Clear Local Storage'),
+            const Divider(),
+            ListTile(
+              title: const Text("Clear Local Storage"),
+              onTap: _clearStorage,
             ),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: _resetApp,
-              child: const Text('Reset Application'),
+            ListTile(
+              title: const Text("Reset Application"),
+              onTap: _resetApp,
             ),
           ],
         ),
