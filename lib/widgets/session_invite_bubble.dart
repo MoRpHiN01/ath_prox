@@ -1,49 +1,50 @@
 // lib/widgets/session_invite_bubble.dart
+
 import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
+import '../models/peer.dart';
 
-class SessionInviteBubble extends StatelessWidget {
-  final String deviceName;
-  final VoidCallback onAccept;
-  final VoidCallback onDecline;
-  final VoidCallback? onMaybeLater;
+/// Displays an invite dialog with Accept / Not Now / Decline options.
+void showSessionInvite(
+  BuildContext context,
+  Peer peer, {
+  required VoidCallback onAccept,
+  required VoidCallback onDecline,
+  VoidCallback? onNotNow,
+}) {
+  if (!context.mounted) return;
 
-  const SessionInviteBubble({
-    Key? key,
-    required this.deviceName,
-    required this.onAccept,
-    required this.onDecline,
-    this.onMaybeLater,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text("Session Invite"),
-      content: Text("Would you like to connect with $deviceName?"),
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('${peer.displayName} invites you'),
       actions: [
         TextButton(
           onPressed: () {
-            Navigator.of(context).pop();
+            Navigator.of(ctx).pop();
             onDecline();
+            Logger().i('Invite declined: ${peer.instanceId}');
           },
-          child: const Text("No"),
+          child: const Text('Decline'),
         ),
-        if (onMaybeLater != null)
+        if (onNotNow != null)
           TextButton(
             onPressed: () {
-              Navigator.of(context).pop();
-              onMaybeLater!();
+              Navigator.of(ctx).pop();
+              onNotNow();
+              Logger().i('Invite deferred: ${peer.instanceId}');
             },
-            child: const Text("Not Now"),
+            child: const Text('Not Now'),
           ),
         ElevatedButton(
           onPressed: () {
-            Navigator.of(context).pop();
+            Navigator.of(ctx).pop();
             onAccept();
+            Logger().i('Invite accepted: ${peer.instanceId}');
           },
-          child: const Text("Sure"),
+          child: const Text('Accept'),
         ),
       ],
-    );
-  }
+    ),
+  );
 }

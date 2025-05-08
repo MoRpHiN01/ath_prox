@@ -1,62 +1,70 @@
+# pubspec.yaml
+
 name: proximity
 description: "ATH > PROXIMITY > Get Connected"
 version: 1.0.0+1
+publish_to: 'none'
 
 environment:
-  sdk: ^3.7.2
+  sdk: ">=2.18.0 <3.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  intl: ^0.20.2
-  wifi_iot: 0.3.19+2
+  # Internationalization, Wi-Fi & HTTP
+  intl: ^0.19.0              # downgraded to satisfy firebase_data_connect if you add it back
+  wifi_iot: ^0.3.19+2
   http: ^1.4.0
   connectivity_plus: ^6.1.4
   network_info_plus: ^6.1.4
 
+  # Logging & IDs
+  logger: ^2.0.2
+  uuid: ^4.1.0
 
-  # Package provider 
-  package_info_plus: 8.3.0
+  # Package info
+  package_info_plus: ^8.3.0
 
-  # Firebase + Cloud
-  firebase_core: ^3.13.0
-  cloud_firestore: ^5.6.7
+  # Firebase core & Firestore
+  firebase_core: ^2.14.0
+  cloud_firestore: ^4.9.0
 
-  # State + Local Storage
-  provider: ^6.1.2
+  # State management & local storage
+  provider: ^6.0.5
   shared_preferences: ^2.2.2
   path_provider: ^2.1.2
   csv: ^6.0.0
 
-  # BLE & Background
-  flutter_blue_plus: ^1.35.5
+  # BLE & Proximity
+  flutter_blue_plus: ^1.4.0
   flutter_ble_peripheral: ^1.2.6
+
+  # Background service
   flutter_background_service: ^5.1.0
-  flutter_background_service_android: 6.3.0
 
-  # Permissions & Device Info
+  # Permissions & device info
   permission_handler: ^12.0.0+1
-  device_info_plus: ^11.4.0
+  device_info_plus: ^10.0.0
 
-  # UI/UX & Utilities
+  # UI/UX & utilities
   url_launcher: ^6.2.5
   share_plus: ^11.0.0
   fluttertoast: ^8.2.12
   image_picker: ^1.0.7
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^1.0.5
 
-  # Local Notifications (custom)
+
+  #flutter_local_notifications: ^12.0.0
+  # Local (path) plugins
   flutter_local_notifications:
     path: local_plugins/flutter_local_notifications
-    
   flutter_nfc_kit:
     path: local_plugins/flutter_nfc_kit
-
   nfc_manager:
     path: local_plugins/flutter_nfc_manager
 
-  # Icons & Splash
+  # App icons & splash
   flutter_launcher_icons: ^0.14.3
   flutter_native_splash: ^2.4.4
 
@@ -65,20 +73,21 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
 
-  firebase_data_connect: any
-  
 flutter:
   uses-material-design: true
+
   assets:
     - assets/images/logo.png
     - assets/launcher/
 
+# flutter_launcher_icons config
 flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/launcher/logo.png"
   adaptive_icon_background: "#FFFFFF"
 
+# flutter_native_splash config
 flutter_native_splash:
   color: "#FFFFFF"
   image: "assets/images/logo.png"
