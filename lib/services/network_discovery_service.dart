@@ -1,5 +1,3 @@
-// lib/services/network_discovery_service.dart
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,42 +6,46 @@ class NetworkDiscoveryService {
   static const int port = 9999;
   RawDatagramSocket? _socket;
   String? _instanceId;
+  void Function(String id, String name, String? ip)? _onFound;
 
   void start(String displayName, void Function(String id, String name, String? ip) onFound, String instanceId) async {
     _instanceId = instanceId;
-    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, port);
-    _socket!.broadcastEnabled = true;
+    _onFound = onFound;
+    try {
+      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, port);
+      _socket!.broadcastEnabled = true;
+      _socket!.listen(_handleSocketEvent);
+      print('[NetworkDiscoveryService] Listening on port $port');
+    } catch (e) {
+      print('[NetworkDiscoveryService] Failed to bind socket: $e');
+    }
+  }
 
-    _socket!.listen((RawSocketEvent event) {
-      if (event == RawSocketEvent.read) {
-        final dg = _socket!.receive();
-        if (dg == null) return;
+  void _handleSocketEvent(RawSocketEvent event) {
+    if (event == RawSocketEvent.read) {
+      final dg = _socket!.receive();
+      if (dg == null) return;
 
-        try {
-          final msg = utf8.decode(dg.data);
-          final map = jsonDecode(msg);
+      try {
+        final msg = utf8.decode(dg.data);
+        final map = jsonDecode(msg);
 
-          if (map['proto'] != 'ath-prox-v1') return;
-          final id = map['instanceId'] as String?;
-          if (id == null || id == _instanceId) return;
+        if (map['proto'] != 'ath-prox-v1') return;
+        final id = map['instanceId'] as String?;
+        if (id == null || id == _instanceId) return;
 
-          final user = map['user'] as String?;
-          if (user != null) onFound(id, user, dg.address.address);
-
-          if (map['type'] == 'invite' && map['targetId'] == _instanceId) {
-            // handle invite delivery
-          }
-        } catch (e) {
-          print('[UDP PARSE ERROR] $e');
-        }
+        final user = map['user'] as String?;
+        if (user != null) _onFound?.call(id, user, dg.address.address);
+      } catch (e) {
+        print('[NetworkDiscoveryService] Error parsing UDP packet: $e');
       }
-    });
+    }
   }
 
   Future<bool> sendInvite({
     required String toId,
     required String fromName,
-    required String fromId,
+    required String instanceId,
     String? targetIp,
   }) async {
     try {
@@ -51,7 +53,7 @@ class NetworkDiscoveryService {
         'proto': 'ath-prox-v1',
         'type': 'invite',
         'from': fromName,
-        'instanceId': fromId,
+        'instanceId': instanceId,
         'targetId': toId,
       });
 
@@ -60,10 +62,10 @@ class NetworkDiscoveryService {
       socket.broadcastEnabled = true;
       socket.send(utf8.encode(msg), address, port);
       socket.close();
-      print('[INVITE] Sent over WiFi to $fromName');
+      print('[NetworkDiscoveryService] Invite sent to $toId');
       return true;
     } catch (e) {
-      print('[INVITE ERROR] $e');
+      print('[NetworkDiscoveryService] Failed to send invite: $e');
       return false;
     }
   }
@@ -80,13 +82,15 @@ class NetworkDiscoveryService {
       socket.broadcastEnabled = true;
       socket.send(utf8.encode(msg), InternetAddress('255.255.255.255'), port);
       socket.close();
-      print('[UDP] Broadcasted status message');
+      print('[NetworkDiscoveryService] Status broadcasted');
     } catch (e) {
-      print('[UDP STATUS ERROR] $e');
+      print('[NetworkDiscoveryService] Failed to broadcast status: $e');
     }
   }
 
   void dispose() {
     _socket?.close();
+    _socket = null;
+    print('[NetworkDiscoveryService] Socket closed');
   }
 }
