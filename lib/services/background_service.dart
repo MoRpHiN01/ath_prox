@@ -1,75 +1,102 @@
 // lib/services/background_service.dart
-
 import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-//import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-//import 'package:fluttertoast/fluttertoast.dart';
-import '../models/session.dart';
-import 'session_sync_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-Future<void> initializeService() async {
-  final service = FlutterBackgroundService();
+import 'ble_service.dart';
+import 'nfc_service.dart';
+import 'wifi_service.dart';
+import '../models/peer.dart';
 
-  await service.configure(
-    androidConfiguration: AndroidConfiguration(
-      onStart: onStart,
-      autoStart: true,
-      isForegroundMode: true,
-      notificationChannelId: 'proximity_channel',
-      initialNotificationTitle: 'ATH > PROXIMITY',
-      initialNotificationContent: 'Initializing background sync...',
-      foregroundServiceNotificationId: 888,
-    ),
-    iosConfiguration: IosConfiguration(
-      onForeground: onStart,
-      onBackground: onIosBackground,
-    ),
+class BackgroundServiceManager {
+  static final BackgroundServiceManager _instance = BackgroundServiceManager._internal();
+
+  factory BackgroundServiceManager() => _instance;
+
+  BackgroundServiceManager._internal();
+
+  final BleService _bleService = BleService(
+    onPeerFound: (peer) => _handlePeer(peer),
+    onError: (err) => print('BLE error: $err'),
   );
 
-  await service.startService();
-}
+  final NfcService _nfcService = NfcService(
+    onPeerDetected: (peer) => _handlePeer(peer),
+    onError: (err) => print('NFC error: $err'),
+  );
 
-@pragma('vm:entry-point')
-void onStart(ServiceInstance service) async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final WifiService _wifiService = WifiService(
+    onPeerDetected: (peer) => _handlePeer(peer),
+    onError: (err) => print('Wi-Fi error: $err'),
+  );
 
-  if (service is AndroidServiceInstance) {
-    service.setAsForegroundService();
+  static void _handlePeer(Peer peer) {
+    // Handle sync logic: update session, notify user, etc.
+    print('🔁 Peer Detected: ${peer.displayName} [${peer.status}]');
+    // Extend this to update local DB or state management
   }
 
-  Timer.periodic(const Duration(minutes: 5), (timer) async {
-    if (service is AndroidServiceInstance && !await service.isForegroundService()) {
-      return;
-    }
+  Future<void> init() async {
+    final service = FlutterBackgroundService();
 
-    // 🧪 Simulated session sync – Replace with real scanning logic
-    final session = Session(
-      deviceId: 'bg-sync-${DateTime.now().millisecondsSinceEpoch}',
-      deviceName: 'Simulated Device',
-      startTime: DateTime.now().subtract(const Duration(minutes: 2)),
-      endTime: DateTime.now(),
-      status: SessionStatus.completed,
+    await service.configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: _onStart,
+        autoStart: true,
+        isForegroundMode: true,
+        notificationChannelId: 'proximity_service',
+        initialNotificationTitle: 'ATH Proximity Service',
+        initialNotificationContent: 'Monitoring nearby devices...',
+        foregroundServiceNotificationId: 4242,
+      ),
+      iosConfiguration: IosConfiguration(
+        onForeground: _onStart,
+        onBackground: () => true,
+      ),
     );
 
-    await SessionSyncService.syncSessions([session]);
+    await service.startService();
+  }
 
-    final statusText = 'Synced @ ${DateTime.now().toIso8601String()}';
-    debugPrint('[BACKGROUND SYNC] $statusText');
+  static void _onStart(ServiceInstance service) async {
+    final ble = BleService(
+      onPeerFound: (peer) => _handlePeer(peer),
+      onError: (err) => print('BLE error in background: $err'),
+    );
 
-    service.invoke("sync", {'message': statusText});
+    final nfc = NfcService(
+      onPeerDetected: (peer) => _handlePeer(peer),
+      onError: (err) => print('NFC error in background: $err'),
+    );
 
-    if (service is AndroidServiceInstance) {
-      service.setForegroundNotificationInfo(
-        title: "ATH > PROXIMITY",
-        content: statusText,
-      );
-    }
-  });
-}
+    final wifi = WifiService(
+      onPeerDetected: (peer) => _handlePeer(peer),
+      onError: (err) => print('Wi-Fi error in background: $err'),
+    );
 
-@pragma('vm:entry-point')
-bool onIosBackground(ServiceInstance service) {
-  WidgetsFlutterBinding.ensureInitialized();
-  return true;
+    // Resume services
+    await ble.startScan();
+    await nfc.startSession();
+    await wifi.startBroadcast();
+
+    service.on('stopService').listen((event) async {
+      await ble.stopScan();
+      await nfc.stopSession();
+      await wifi.stopBroadcast();
+      await service.stopSelf();
+    });
+
+    Timer.periodic(const Duration(minutes: 5), (timer) async {
+      service.invoke('update', {'status': 'running'});
+    });
+  }
+
+  Future<void> stop() async {
+    final service = FlutterBackgroundService();
+    await _bleService.stopScan();
+    await _nfcService.stopSession();
+    await _wifiService.stopBroadcast();
+    await service.invoke('stopService');
+  }
 }
