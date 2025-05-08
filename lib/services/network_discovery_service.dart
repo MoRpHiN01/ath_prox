@@ -1,63 +1,84 @@
 // lib/services/network_discovery_service.dart
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:logger/logger.dart';
-
 import '../models/peer.dart';
-import 'ble_service.dart';
 
-/// UDP peer discovery + presence & invite broadcasting.
 class NetworkDiscoveryService {
-  static const int port = 9999;
-  final void Function(Peer) onPeerFound;
+  static const int _port = 9999;
+  static final Logger _logger = Logger();
+
   RawDatagramSocket? _socket;
+  final String instanceId;
+  final String displayName;
+  final String status;
+  final void Function(Peer) onPeerDiscovered;
 
-  NetworkDiscoveryService({required this.onPeerFound});
+  NetworkDiscoveryService({
+    required this.instanceId,
+    required this.displayName,
+    required this.status,
+    required this.onPeerDiscovered,
+  });
 
-  /// Bind to UDP port (with reusePort fallback on Android 11).
   Future<void> start() async {
     try {
-      _socket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        port,
-        reuseAddress: true,
-        reusePort: true,
-      );
-    } catch (_) {
-      Logger().w('reusePort not supported, retrying without it');
-      _socket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        port,
-        reuseAddress: true,
-      );
-    }
-    _socket!
-      ..broadcastEnabled = true
-      ..listen(_onData, onError: (e) => Logger().e('UDP error: $e'));
-    Logger().i('UDP listening on port $port');
-  }
-
-  void _onData(RawSocketEvent event) {
-    if (event != RawSocketEvent.read) return;
-    final dg = _socket!.receive();
-    if (dg == null) return;
-    final peer = Peer.fromUdpPacket(dg.data);
-    if (peer != null && peer.instanceId != BleService.instanceId) {
-      onPeerFound(peer);
+      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _port);
+      _socket?.broadcastEnabled = true;
+      _socket?.listen(_handlePacket);
+      _logger.i('UDP listening on port $_port');
+    } catch (e) {
+      _logger.e('Failed to bind UDP socket: $e');
     }
   }
 
-  /// Broadcast presence or invite.
-  Future<void> sendInvite(Peer me) async {
-    final packet = me.toUdpPacket();
-    _socket?.send(packet, InternetAddress('255.255.255.255'), port);
-    Logger().i('UDP ${me.status == 'pending' ? 'invite' : 'presence'}: ${me.displayName}');
+  void _handlePacket(RawSocketEvent event) {
+    if (event == RawSocketEvent.read) {
+      final datagram = _socket?.receive();
+      if (datagram != null) {
+        final peer = Peer.fromUdpPacket(datagram.data);
+        if (peer != null && peer.instanceId != instanceId) {
+          onPeerDiscovered(peer);
+        }
+      }
+    }
   }
 
-  /// Clean up socket.
-  void dispose() {
+  Future<void> broadcastStatus() async {
+    final map = {
+      'instanceId': instanceId,
+      'displayName': displayName,
+      'status': status,
+    };
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(map)));
+
+    try {
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          final bcast = addr.rawAddress;
+          if (bcast.length == 4) {
+            final broadcastAddress = InternetAddress.fromRawAddress([
+              bcast[0],
+              bcast[1],
+              bcast[2],
+              255
+            ]);
+            _socket?.send(bytes, broadcastAddress, _port);
+          }
+        }
+      }
+    } catch (e) {
+      _logger.e('Failed to broadcast UDP status: $e');
+    }
+  }
+
+  Future<void> dispose() async {
     _socket?.close();
-    _socket = null;
   }
 }

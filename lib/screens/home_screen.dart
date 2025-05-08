@@ -1,39 +1,31 @@
+
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../models/peer.dart';
-import '../models/user_model.dart';
-import '../services/ble_service.dart';
+import 'package:proximity/services/ble_service.dart';
+import 'package:proximity/models/peer.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   late BleService _bleService;
-  final List<Peer> _peers = [];
+  List<Peer> _peers = [];
 
   @override
   void initState() {
     super.initState();
-    _bleService = BleService(
-      onPeerFound: (peer) {
-        final existingIndex = _peers.indexWhere((p) => p.instanceId == peer.instanceId);
-        if (existingIndex == -1) {
-          setState(() => _peers.add(peer));
-        } else {
-          setState(() => _peers[existingIndex] = peer);
-        }
-      },
-      onError: (e) => debugPrint('BLE error: $e'),
-    );
-    _startDiscovery();
+    _bleService = BleService(onPeerFound: _onPeerFound);
+    _bleService.startScan();
   }
 
-  Future<void> _startDiscovery() async {
-    await _bleService.startScan();
+  void _onPeerFound(Peer peer) {
+    setState(() {
+      _peers.removeWhere((p) => p.instanceId == peer.instanceId);
+      _peers.add(peer);
+    });
   }
 
   @override
@@ -44,16 +36,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<UserModel>(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nearby Devices'),
+        title: Text('Nearby Devices'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh),
             onPressed: () {
-              setState(() => _peers.clear());
-              _startDiscovery();
+              _bleService.stopScan();
+              _bleService.startScan();
             },
           ),
         ],
@@ -63,20 +54,8 @@ class _HomeScreenState extends State<HomeScreen> {
         itemBuilder: (context, index) {
           final peer = _peers[index];
           return ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.device_hub)),
             title: Text(peer.displayName),
             subtitle: Text(peer.status),
-            trailing: ElevatedButton(
-              onPressed: peer.status == 'available'
-                  ? () {
-                      setState(() {
-                        _peers[index] = peer.copyWith(status: 'pending');
-                      });
-                      _bleService.sendInvite(peer.instanceId);
-                    }
-                  : null,
-              child: Text(peer.status == 'pending' ? 'Invited' : 'Invite'),
-            ),
           );
         },
       ),

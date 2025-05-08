@@ -1,53 +1,63 @@
 // lib/services/nfc_service.dart
 
 import 'dart:convert';
-import 'package:nfc_manager/nfc_manager.dart';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_nfc_kit/flutter_nfc_kit.dart';
+import 'package:logger/logger.dart';
+import '../models/peer.dart';
 
 class NfcService {
-  Function(String peerId, String peerName)? _onInviteReceived;
+  final Logger _log = Logger();
+  final void Function(Peer peer) onPeerReceived;
 
-  void startSession(Function(String, String) onInviteReceived) {
-    _onInviteReceived = onInviteReceived;
+  NfcService({required this.onPeerReceived});
 
-    NfcManager.instance.isAvailable().then((available) {
-      if (!available) return;
-
-      NfcManager.instance.startSession(
-        onDiscovered: (NfcTag tag) async {
-          try {
-            final ndef = Ndef.from(tag);
-            if (ndef == null) return;
-
-            final cachedMessage = ndef.cachedMessage;
-            if (cachedMessage == null || cachedMessage.records.isEmpty) return;
-
-            final payloadBytes = cachedMessage.records.first.payload;
-            final payload = utf8.decode(payloadBytes.skip(3).toList()); // Skip language code bytes
-            final json = jsonDecode(payload);
-
-            final peerId = json['id'] ?? 'unknown';
-            final peerName = json['name'] ?? 'unknown';
-
-            _onInviteReceived?.call(peerId, peerName);
-          } catch (e) {
-            // Silently fail or log error
-          }
-        },
+  Future<void> startNfcSession(String instanceId, String displayName, String status) async {
+    try {
+      _log.i("Starting NFC session...");
+      final Peer localPeer = Peer(
+        instanceId: instanceId,
+        displayName: displayName,
+        status: status,
       );
-    });
+      final String payload = jsonEncode({
+        'instanceId': localPeer.instanceId,
+        'displayName': localPeer.displayName,
+        'status': localPeer.status,
+      });
+      final NFCTag tag = await FlutterNfcKit.poll(timeout: Duration(seconds: 10));
+
+      if (tag.type == NFCTagType.iso7816 || tag.type == NFCTagType.iso15693 || tag.type == NFCTagType.mifare_ultralight) {
+        await FlutterNfcKit.transceive(payload);
+        _log.i("NFC payload sent");
+      } else {
+        _log.w("Unsupported NFC tag type");
+      }
+    } catch (e) {
+      _log.e("NFC session error: $e");
+    } finally {
+      await FlutterNfcKit.finish();
+    }
   }
 
-  void stopSession() {
-    NfcManager.instance.stopSession();
-  }
-
-  Future<void> sendInvite(String deviceId, String displayName) async {
-    final ndefRecord = NdefRecord.createText(jsonEncode({
-      "id": deviceId,
-      "name": displayName,
-    }));
-
-    final message = NdefMessage([ndefRecord]);
-    // await NfcManager.instance.writeNdef(message);
+  Future<void> listenForNfcPeer() async {
+    try {
+      _log.i("Listening for NFC peer...");
+      final NFCTag tag = await FlutterNfcKit.poll(timeout: Duration(seconds: 15));
+      final String response = await FlutterNfcKit.transceive("GET");
+      final Map<String, dynamic> map = jsonDecode(response);
+      final peer = Peer(
+        instanceId: map['instanceId'],
+        displayName: map['displayName'],
+        status: map['status'],
+      );
+      _log.i("Received peer via NFC: ${peer.displayName}");
+      onPeerReceived(peer);
+    } catch (e) {
+      _log.e("NFC listen error: $e");
+    } finally {
+      await FlutterNfcKit.finish();
+    }
   }
 }
