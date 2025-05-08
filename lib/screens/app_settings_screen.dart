@@ -1,29 +1,56 @@
 import 'package:flutter/material.dart';
-import '../services/config_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   const AppSettingsScreen({Key? key}) : super(key: key);
 
   @override
-  State<AppSettingsScreen> createState() => _AppSettingsScreenState();
+  _AppSettingsScreenState createState() => _AppSettingsScreenState();
 }
 
 class _AppSettingsScreenState extends State<AppSettingsScreen> {
-  bool debugEnabled = ConfigService.instance.debugEnabled;
-  int refreshRate = ConfigService.instance.refreshRate;
+  bool _debugMode = false;
+  int _refreshRate = 10;
 
-  void _clearLocalStorage() async {
-    await ConfigService.instance.clearAll();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Local storage cleared")),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
   }
 
-  void _resetApp() async {
-    await ConfigService.instance.resetApp();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("App reset")),
-    );
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _debugMode = prefs.getBool('debugMode') ?? false;
+      _refreshRate = prefs.getInt('refreshRate') ?? 10;
+    });
+  }
+
+  Future<void> _updateDebugMode(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('debugMode', value);
+    setState(() {
+      _debugMode = value;
+    });
+  }
+
+  Future<void> _updateRefreshRate(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('refreshRate', value);
+    setState(() {
+      _refreshRate = value;
+    });
+  }
+
+  Future<void> _clearStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    _loadSettings();
+  }
+
+  Future<void> _resetApp() async {
+    await _clearStorage();
+    // You can navigate to an onboarding or login screen if needed
   }
 
   @override
@@ -33,49 +60,39 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SwitchListTile(
-              title: const Text('Enable Debug Logs'),
-              value: debugEnabled,
-              onChanged: (value) {
-                setState(() {
-                  debugEnabled = value;
-                  ConfigService.instance.setDebug(value);
-                });
-              },
+              title: const Text('Display Debug Toggle'),
+              value: _debugMode,
+              onChanged: _updateDebugMode,
             ),
-            ListTile(
-              title: const Text('Auto Refresh Rate (seconds)'),
-              trailing: DropdownButton<int>(
-                value: refreshRate,
-                items: [5, 10, 15, 30].map((int value) {
-                  return DropdownMenuItem<int>(
-                    value: value,
-                    child: Text(value.toString()),
-                  );
-                }).toList(),
-                onChanged: (int? newValue) {
-                  if (newValue != null) {
-                    setState(() {
-                      refreshRate = newValue;
-                      ConfigService.instance.setRefreshRate(newValue);
-                    });
-                  }
-                },
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Refresh Rate (seconds)'),
+                DropdownButton<int>(
+                  value: _refreshRate,
+                  items: [5, 10, 15, 30]
+                      .map((int value) => DropdownMenuItem<int>(
+                            value: value,
+                            child: Text('$value'),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) _updateRefreshRate(value);
+                  },
+                )
+              ],
             ),
             const SizedBox(height: 20),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.cleaning_services),
-              label: const Text("Clear Local Storage"),
-              onPressed: _clearLocalStorage,
+            ElevatedButton(
+              onPressed: _clearStorage,
+              child: const Text('Clear Local Storage'),
             ),
             const SizedBox(height: 10),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.restart_alt),
-              label: const Text("Reset Application"),
+            ElevatedButton(
               onPressed: _resetApp,
+              child: const Text('Reset Application'),
             ),
           ],
         ),
