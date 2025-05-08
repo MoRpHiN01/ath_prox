@@ -4,13 +4,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-/// Represents a discovered peer in our protocol.
+/// Represents a discovered peer in the ATH Proximity protocol.
 class Peer {
-  static final String protoKey = 'ath-prox-v1';
+  static const String protoKey = 'ath-prox-v1';
 
   final String instanceId;
   final String displayName;
-  final String status; // e.g. 'available', 'pending', 'accepted', 'ended'
+  final String status; // 'available', 'pending', 'accepted', 'ended'
 
   Peer({
     required this.instanceId,
@@ -18,7 +18,7 @@ class Peer {
     required this.status,
   });
 
-  /// Create a modified clone.
+  /// Clone with optional overrides.
   Peer copyWith({String? displayName, String? status}) {
     return Peer(
       instanceId: instanceId,
@@ -27,52 +27,56 @@ class Peer {
     );
   }
 
-  /// Parse a BLE ScanResult from our manufacturerData payload (0xFFFF).
+  /// Parse BLE manufacturer data into Peer.
   static Peer? fromAdvertisement(ScanResult result) {
-    final mfg = result.advertisementData.manufacturerData[0xFFFF];
-    if (mfg == null) return null;
+    final data = result.advertisementData.manufacturerData[0xFFFF];
+    if (data == null) return null;
 
     try {
-      final map = jsonDecode(utf8.decode(Uint8List.fromList(mfg))) as Map;
-      final id = map['instanceId'] as String;
-      var name = (map['displayName'] as String).trim();
+      final decoded = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+
+      final id = decoded['instanceId']?.toString().trim();
+      if (id == null || id.isEmpty) return null;
+
+      String name = decoded['displayName']?.toString().trim() ?? '';
       if (name.isEmpty) {
         name = result.device.name.isNotEmpty
             ? result.device.name
-            : 'Unknown Device';
+            : result.device.id.id;
       }
-      final status = (map['status'] as String).trim().isNotEmpty
-          ? map['status'] as String
-          : 'available';
+
+      final status = decoded['status']?.toString().trim() ?? 'available';
+
       return Peer(instanceId: id, displayName: name, status: status);
     } catch (_) {
       return null;
     }
   }
 
-  /// Parse our UDP JSON packet.
+  /// Parse UDP packet into Peer.
   static Peer? fromUdpPacket(Uint8List bytes) {
     try {
-      final map = jsonDecode(utf8.decode(bytes)) as Map;
-      final id = map['instanceId'] as String;
-      var name = (map['displayName'] as String).trim();
-      if (name.isEmpty) name = 'Unknown Device';
-      final status = (map['status'] as String).trim().isNotEmpty
-          ? map['status'] as String
-          : 'available';
+      final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+
+      final id = decoded['instanceId']?.toString().trim();
+      if (id == null || id.isEmpty) return null;
+
+      String name = decoded['displayName']?.toString().trim() ?? 'Unknown Device';
+      final status = decoded['status']?.toString().trim() ?? 'available';
+
       return Peer(instanceId: id, displayName: name, status: status);
     } catch (_) {
       return null;
     }
   }
 
-  /// Serialize to UDP JSON packet.
+  /// Convert to UDP packet.
   Uint8List toUdpPacket() {
-    final jsonStr = jsonEncode({
+    final map = {
       'instanceId': instanceId,
       'displayName': displayName,
       'status': status,
-    });
-    return Uint8List.fromList(utf8.encode(jsonStr));
+    };
+    return Uint8List.fromList(utf8.encode(jsonEncode(map)));
   }
 }

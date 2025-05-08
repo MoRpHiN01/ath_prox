@@ -1,14 +1,14 @@
 // lib/services/ble_service.dart
 
 import 'dart:async';
-import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:logger/logger.dart';
 import 'package:uuid/uuid.dart';
-
 import '../models/peer.dart';
 
-/// BLE Central (scanner) service.
 class BleService {
   static final String instanceId = const Uuid().v4();
 
@@ -16,18 +16,17 @@ class BleService {
   final void Function(Object)? onError;
   StreamSubscription<List<ScanResult>>? _subscription;
 
+  final FlutterBlePeripheral blePeripheral = FlutterBlePeripheral();
+
   BleService({required this.onPeerFound, this.onError});
 
-  /// Start BLE scan (always run on both SDKs).
-  void startScan() {
-    final flutterBlue = FlutterBluePlus.instance;
+  Future<void> startScan() async {
     try {
-      flutterBlue.startScan(
+      await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 10),
-        scanMode: ScanMode.lowLatency,
-        allowDuplicates: true,
       );
-      _subscription = flutterBlue.scanResults.listen((results) {
+
+      _subscription = FlutterBluePlus.scanResults.listen((results) {
         for (final result in results) {
           final peer = Peer.fromAdvertisement(result);
           if (peer != null && peer.instanceId != instanceId) {
@@ -35,20 +34,60 @@ class BleService {
           }
         }
       });
-    } on PlatformException catch (e) {
-      Logger().e('BLE scan error: ${e.code}');
+    } catch (e) {
+      Logger().e('BLE scan error: $e');
       onError?.call(e);
     }
   }
 
-  /// Stop BLE scan.
-  void stopScan() {
-    _subscription?.cancel();
-    FlutterBluePlus.instance.stopScan();
+  Future<void> stopScan() async {
+    await _subscription?.cancel();
+    await FlutterBluePlus.stopScan();
   }
 
-  /// Ble-based invite (not implemented yet).
-  Future<void> sendInvite(String targetId) async {
-    Logger().i('Sending BLE invite to $targetId');
+  Future<void> startAdvertising({
+    required String displayName,
+    required String status,
+  }) async {
+    try {
+      final payload = _generateBleAdvertisementPayload(
+        instanceId: instanceId,
+        displayName: displayName,
+        status: status,
+      );
+
+      await blePeripheral.start(advertiseData: AdvertiseData(
+        includeDeviceName: false,
+        manufacturerId: 0xFFFF,
+        manufacturerData: payload,
+      ));
+
+      Logger().i('Started BLE advertising for $displayName [$status]');
+    } catch (e) {
+      Logger().e('BLE advertising error: $e');
+      onError?.call(e);
+    }
+  }
+
+  Future<void> stopAdvertising() async {
+    await blePeripheral.stop();
+    Logger().i('Stopped BLE advertising');
+  }
+
+  Future<void> sendInvite(String peerId) async {
+    Logger().i('BLE invite sent to $peerId (placeholder)');
+  }
+
+  Uint8List _generateBleAdvertisementPayload({
+    required String instanceId,
+    required String displayName,
+    required String status,
+  }) {
+    final jsonMap = {
+      'instanceId': instanceId,
+      'displayName': displayName,
+      'status': status,
+    };
+    return Uint8List.fromList(utf8.encode(jsonEncode(jsonMap)));
   }
 }
