@@ -41,6 +41,7 @@ dependencies:
   flutter_ble_peripheral: ^1.2.6
 
   # Background service
+  flutter_blue_background: ^0.0.1
   flutter_background_service: ^5.1.0
 
   # Permissions & device info

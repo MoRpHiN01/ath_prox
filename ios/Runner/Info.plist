@@ -37,5 +37,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+<key>NSBluetoothAlwaysUsageDescription</key>
+<string>App requires Bluetooth access to discover nearby devices.</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>App requires location access to discover nearby devices.</string>	
 </dict>
 </plist>
