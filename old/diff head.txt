@@ -1,1 +1,0 @@
-git diff HEAD -- lib/background/background_task.dart lib/main.dart lib/models/peer.dart lib/screens/home_screen.dart lib/services/ble_service.dart lib/services/network_discovery_service.dart lib/services/session_sync_service.dart lib/utils/logger_setup.dart lib/widgets/session_invite_bubble.dart pubspec.yaml > ath_prox-changes.patch
