@@ -1,0 +1,1 @@
+const String appTitle = "ATH PROXIMITY - GET CONNECTED";
