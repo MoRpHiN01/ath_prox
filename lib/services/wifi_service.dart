@@ -1,3 +1,1 @@
-class WifiService {
-  // TODO: Implement WiFi UDP broadcasting fallback
-}
+// Wi-Fi UDP broadcasting and scanning logic

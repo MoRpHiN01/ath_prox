@@ -1,0 +1,1 @@
+// About screen with version info

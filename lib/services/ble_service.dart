@@ -1,3 +1,1 @@
-class BleService {
-  // TODO: Implement BLE advertising and scanning
-}
+// BLE scanning and advertising logic

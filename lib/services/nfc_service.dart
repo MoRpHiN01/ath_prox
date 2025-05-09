@@ -1,3 +1,1 @@
-class NfcService {
-  // TODO: Implement NFC read/write fallback
-}
+// NFC interaction logic
