@@ -1,1 +1,1 @@
-// Home screen UI with BLE list and controls
+// TODO: Add home screen UI

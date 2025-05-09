@@ -1,1 +1,1 @@
-// BLE scanning and advertising logic
+// TODO: Add BLE logic

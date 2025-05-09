@@ -1,1 +1,1 @@
-const String appTitle = "ATH PROXIMITY - GET CONNECTED";
+// TODO: Add app constants
