@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 
 class DeviceTile extends StatelessWidget {
-  final String name;
-  final String status;
+  final dynamic device;
 
-  const DeviceTile({required this.name, required this.status, super.key});
+  const DeviceTile({required this.device});
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(name),
-      subtitle: Text(status),
+      title: Text(device['name'] ?? 'Unknown Device'),
+      subtitle: Text("Status: ${device['status']}"),
+      trailing: ElevatedButton(
+        child: Text(device['inSession'] ? 'End' : 'Invite'),
+        onPressed: () {
+          // TODO: Handle invite/end session logic
+        },
+      ),
     );
   }
 }

@@ -1,25 +1,16 @@
-import 'dart:collection';
-import '../models/peer.dart';
+import '../models/session_record.dart';
 
 class SessionManager {
-  final Map<String, DateTime> _activeSessions = HashMap();
+  List<SessionRecord> _records = [];
 
-  void startSession(Peer peer) {
-    _activeSessions[peer.instanceId] = DateTime.now();
+  void startSession(String peerName) {
+    _records.add(SessionRecord(peerName, DateTime.now()));
   }
 
-  void endSession(String instanceId) {
-    _activeSessions.remove(instanceId);
+  void endSession(String peerName) {
+    final record = _records.lastWhere((r) => r.peerName == peerName && r.endTime == null, orElse: () => throw Exception("No session to end"));
+    record.endTime = DateTime.now();
   }
 
-  bool isInSessionWith(String instanceId) {
-    return _activeSessions.containsKey(instanceId);
-  }
-
-  Duration? sessionDuration(String instanceId) {
-    if (_activeSessions.containsKey(instanceId)) {
-      return DateTime.now().difference(_activeSessions[instanceId]!);
-    }
-    return null;
-  }
+  List<SessionRecord> get records => _records;
 }

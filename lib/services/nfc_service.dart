@@ -1,9 +1,13 @@
 class NfcService {
-  void startSession() {
-    // Implement NFC peer detection
+  void init() {
+    // Initialize NFC
   }
 
-  void stopSession() {
-    // Stop NFC session
+  void readTag() {
+    // Read NFC Tag
+  }
+
+  void writeTag(String data) {
+    // Write to NFC Tag
   }
 }
