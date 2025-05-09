@@ -1,1 +1,5 @@
-# Flutter project config with dependencies
+name: ath_prox
+version: 1.0.0
+flutter:
+  assets:
+    - assets/images/app_icon.png

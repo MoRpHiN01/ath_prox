@@ -1,1 +1,1 @@
-// Background task handling and persistence
+// Background handling for all protocols

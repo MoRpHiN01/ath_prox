@@ -1,1 +1,1 @@
-// Session model
+// Session tracking and lifecycle state

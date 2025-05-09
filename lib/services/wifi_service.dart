@@ -1,9 +1,1 @@
-class WifiService {
-  void broadcast(String message) {
-    // Broadcast over UDP
-  }
-
-  void listenForBroadcast() {
-    // Listen for UDP packets
-  }
-}
+// Wi-Fi UDP sync fallback logic

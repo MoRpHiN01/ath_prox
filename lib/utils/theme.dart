@@ -1,1 +1,1 @@
-// App theme configuration
+// Color theming derived from asset icon

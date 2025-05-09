@@ -1,1 +1,1 @@
-// Settings screen UI
+// Settings screen with auto-refresh, debug toggles
