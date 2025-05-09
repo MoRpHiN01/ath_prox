@@ -1,47 +1,33 @@
-
 import 'package:flutter/material.dart';
-import '../services/ble_service.dart';
-import '../models/peer.dart';
 
-class HomeScreen extends StatefulWidget {
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  final BleService _bleService = BleService();
-  List<Peer> _peers = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _bleService.startScan((peer) {
-      setState(() {
-        _peers.add(peer);
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _bleService.stopScan();
-    super.dispose();
-  }
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("ATH PROXIMITY - GET CONNECTED")),
-      body: ListView.builder(
-        itemCount: _peers.length,
-        itemBuilder: (context, index) {
-          final peer = _peers[index];
-          return ListTile(
-            title: Text(peer.displayName),
-            subtitle: Text(peer.status),
-            trailing: Icon(Icons.bluetooth),
-          );
-        },
+      appBar: AppBar(title: const Text('Nearby Devices')),
+      body: const Center(child: Text('Device list will appear here.')),
+      drawer: Drawer(
+        child: ListView(
+          children: const [
+            DrawerHeader(
+              child: Text('ATH PROXIMITY'),
+            ),
+            ListTile(
+              title: Text('Profile'),
+            ),
+            ListTile(
+              title: Text('Settings'),
+            ),
+            ListTile(
+              title: Text('Reports'),
+            ),
+            ListTile(
+              title: Text('About'),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
+import 'screens/home_screen.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const ProximityApp());
 }
 
-class MyApp extends StatelessWidget {
+class ProximityApp extends StatelessWidget {
+  const ProximityApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'ATH PROXIMITY - GET CONNECTED',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.teal,
+        useMaterial3: true,
       ),
-      home: Scaffold(
-        appBar: AppBar(title: Text('ATH PROXIMITY')),
-        body: Center(child: Text('Hello, ATH Proximity!')),
-      ),
+      home: const HomeScreen(),
     );
   }
 }

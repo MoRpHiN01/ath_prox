@@ -1,15 +1,9 @@
-
-import 'package:nfc_manager/nfc_manager.dart';
-
 class NfcService {
-  void startNfcSession(Function(String) onDataReceived) {
-    NfcManager.instance.startSession(onDiscovered: (tag) async {
-      final data = tag.data.toString();
-      onDataReceived(data);
-    });
+  void startSession() {
+    // Implement NFC peer detection
   }
 
-  void stopNfcSession() {
-    NfcManager.instance.stopSession();
+  void stopSession() {
+    // Stop NFC session
   }
 }
