@@ -1,1 +1,1 @@
-// Theming based on logo palette
+// App theme configuration

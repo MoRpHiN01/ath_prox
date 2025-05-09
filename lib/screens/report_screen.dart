@@ -1,1 +1,1 @@
-// Session report list
+// Report screen UI

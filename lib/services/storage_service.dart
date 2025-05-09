@@ -1,1 +1,1 @@
-// Local storage and config persistence
+// Storage service logic
